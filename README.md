@@ -50,6 +50,10 @@ which needed a whole ESP32 + WLED + Home Assistant automation stack to do the sa
 
 ## Getting it running
 
+**Just want to flash it, not hack on the code?** Skip all of this —
+[flash it straight from your browser](https://brunohvp.github.io/Bambu-LED-Status-Bar/)
+(Chrome or Edge, USB cable, no software install). Otherwise, to build from source:
+
 1. Grab [VS Code](https://code.visualstudio.com/) and the **PlatformIO IDE** extension.
 2. Open this folder in VS Code — PlatformIO picks up `platformio.ini` and pulls the
    dependencies on its own.

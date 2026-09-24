@@ -1,0 +1,12 @@
+{
+  "name": "Bambu LED Status Bar",
+  "version": "0.1.0",
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "parts": [
+        { "path": "firmware.factory.bin", "offset": 0 }
+      ]
+    }
+  ]
+}

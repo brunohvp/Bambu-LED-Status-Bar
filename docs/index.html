@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bambu LED Status Bar — Web Installer</title>
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<style>
+  :root{--bg:#12161c;--card:#1b212b;--text:#eef1f5;--muted:#8b93a1;--accent:#00c37a;--border:#2a3240}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;display:flex;justify-content:center;padding:40px 16px}
+  main{max-width:560px;width:100%}
+  h1{font-size:26px;margin:0 0 6px}
+  p.sub{color:var(--muted);margin:0 0 28px;font-size:15px;line-height:1.5}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px;margin-bottom:16px}
+  .card h2{font-size:16px;margin:0 0 10px}
+  .card p{color:var(--muted);font-size:14px;line-height:1.6;margin:0 0 14px}
+  .card ul{color:var(--muted);font-size:14px;line-height:1.7;margin:0 0 14px;padding-left:20px}
+  a{color:var(--accent)}
+  esp-web-install-button{display:block}
+  esp-web-install-button::part(button){background:var(--accent);color:#04231a;border:none;border-radius:9px;padding:12px 20px;font-size:15px;font-weight:600;cursor:pointer;width:100%}
+  .note{font-size:13px;color:var(--muted);margin-top:14px;line-height:1.5}
+  .browsers{display:flex;gap:8px;margin-top:10px;font-size:13px;color:var(--muted)}
+  footer{text-align:center;color:var(--muted);font-size:13px;margin-top:24px}
+  footer a{color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+  <h1>Bambu LED Status Bar</h1>
+  <p class="sub">Flash the firmware straight from your browser — no PlatformIO, no drivers, no command line.</p>
+
+  <div class="card">
+    <h2>Before you start</h2>
+    <ul>
+      <li>Use <strong>Chrome</strong> or <strong>Edge</strong> — this needs Web Serial, which Firefox and Safari don't support.</li>
+      <li>Plug the ESP32 in with a USB <strong>data</strong> cable (not a charge-only one).</li>
+      <li>Close any other program that might have the serial port open (Arduino IDE, PlatformIO's own monitor, etc).</li>
+    </ul>
+    <esp-web-install-button manifest="manifest.json"></esp-web-install-button>
+    <p class="note">The button above will ask you to pick the ESP32's serial port, then flash and verify the firmware. Takes under a minute.</p>
+  </div>
+
+  <div class="card">
+    <h2>After flashing</h2>
+    <p>The board reboots and creates its own WiFi network, <code>BambuLED-XXXX</code>. Connect to it from your phone — a setup page should pop up on its own (or go to <code>http://192.168.4.1</code>) to configure your home WiFi and printer.</p>
+    <p>Full instructions, wiring diagram and source code are in the <a href="https://github.com/brunohvp/Bambu-LED-Status-Bar">GitHub repo</a>.</p>
+  </div>
+
+  <footer>
+    <a href="https://github.com/brunohvp/Bambu-LED-Status-Bar">Bambu LED Status Bar on GitHub</a> · Built with <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a>
+  </footer>
+</main>
+</body>
+</html>
