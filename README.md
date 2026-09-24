@@ -6,6 +6,8 @@ just the ESP32 and the printer. It's the successor to
 [Bambu Lab P2S LED Progress/Status Bar](https://makerworld.com/en/models/2172105-bambu-lab-p2s-led-progress-status-bar-ha-mqtt),
 which needed a whole ESP32 + WLED + Home Assistant automation stack to do the same thing.
 The MakerWorld page also has the 3D-printable LED mount, wiring guide and parts list.
+If you'd rather run the Home Assistant + WLED version instead, see
+[Bambu Lab LED Status Bar - HomeAssistant V2.pdf](docs/Bambu%20Lab%20LED%20Status%20Bar%20-%20HomeAssistant%20V2.pdf).
 
 > **Status: work in progress.** This was a project to learn and have fun with —
 > I know my way around a lot of this stuff but I'm not good with coding, so
@@ -40,6 +42,9 @@ The MakerWorld page also has the 3D-printable LED mount, wiring guide and parts 
 
 ### Wiring it up
 
+For the full wiring diagram, photos, parts list and mounting the strip on the printer,
+see [Bambu Lab LED Status Bar - Wiring.pdf](docs/Bambu%20Lab%20LED%20Status%20Bar%20-%20Wiring.pdf).
+
 | Strip | ESP32 |
 |---|---|
 | **DIN** (data) | GPIO16 |
@@ -59,7 +64,8 @@ The MakerWorld page also has the 3D-printable LED mount, wiring guide and parts 
 ## Flashing from your browser (recommended)
 
 Don't need PlatformIO, drivers, or to pick a firmware file — the installer pulls the
-latest build straight from this repo automatically.
+latest build straight from this repo automatically. Prefer a PDF walkthrough? See
+[Bambu Lab LED Status Bar - MQTT.pdf](docs/Bambu%20Lab%20LED%20Status%20Bar%20-%20MQTT.pdf).
 
 1. **Use Chrome or Edge.** This relies on Web Serial, which Firefox and Safari don't
    support.
