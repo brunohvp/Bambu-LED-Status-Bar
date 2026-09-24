@@ -24,6 +24,13 @@ static unsigned long idleSinceMs = 0;
 static const unsigned long FINISHED_DISPLAY_MS = 60UL * 1000UL;
 static unsigned long finishedSinceMs = 0;
 
+// g_cfg is written by reloadConfig() (called from the AsyncWebServer task when
+// Settings are saved) and read by update() (on its own ledTask, see main.cpp)
+// — different tasks, so a plain struct copy on either side could tear mid-copy
+// and briefly render a color that's part old, part new. This spinlock is only
+// ever held for a tiny, non-blocking struct copy, so it's cheap enough to wrap
+// every frame.
+static portMUX_TYPE g_cfgMux = portMUX_INITIALIZER_UNLOCKED;
 static AnimConfigSet g_cfg;
 static PrinterState lastRenderedState = PrinterState::Unknown;
 static bool everRenderedNormal = false;
@@ -117,7 +124,10 @@ void LedAnimations::begin() {
 }
 
 void LedAnimations::reloadConfig() {
-    g_cfg = AnimConfigStore::load();
+    AnimConfigSet loaded = AnimConfigStore::load(); // NVS I/O stays outside the lock
+    portENTER_CRITICAL(&g_cfgMux);
+    g_cfg = loaded;
+    portEXIT_CRITICAL(&g_cfgMux);
 }
 
 void LedAnimations::update(PrinterState state, int percent, bool chamberLightOn) {
@@ -160,7 +170,8 @@ void LedAnimations::update(PrinterState state, int percent, bool chamberLightOn)
     // Speed/intensity are fixed per state, hand-picked to fit each animation
     // (Percent and Solid ignore both anyway). Error is the urgent end.
     StateAnimConfig c{};
-    uint8_t speed = 128, intensity = 128;
+    uint8_t speed = 128, intensity = 128, brightness;
+    portENTER_CRITICAL(&g_cfgMux);
     switch (state) {
         case PrinterState::Idle: c = g_cfg.idle; speed = 134; break; // matches the original WLED preset's sx
         case PrinterState::Calibrating: c = g_cfg.calibrating; speed = 130; intensity = 100; break; // covers heating too
@@ -171,8 +182,9 @@ void LedAnimations::update(PrinterState state, int percent, bool chamberLightOn)
         default:
             break; // unreachable — Unknown returns early above
     }
+    brightness = g_cfg.brightness;
+    portEXIT_CRITICAL(&g_cfgMux);
 
-    uint8_t brightness = g_cfg.brightness;
     // The printer's own chamber light being off is a decent signal nobody's
     // actively watching it — drop to a dim ~10% regardless of state,
     // independent of (and stacking with) the longer-timeout "sleeping" dim below.
