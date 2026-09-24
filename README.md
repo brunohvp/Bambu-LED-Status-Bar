@@ -158,12 +158,11 @@ Colors came straight from the original WLED `presets.json` this project replaces
 | State | Effect | Colors | What it looks like |
 |---|---|---|---|
 | idle | Plasmoid (WLED's `Plasma`) | 2 | a slow color wave drifting along the strip |
-| calibrating | Loading | 2 (trail + head) | a pixel traveling back and forth with a fading trail — covers heating, homing, leveling, filament changes, anything "getting ready" |
+| calibrating | Loading | 1 | a pixel traveling back and forth with a fading trail — covers heating, homing, leveling, filament changes, anything "getting ready" |
 | printing | Percent | 2 (bar + tip) | one segment per 10% progress; the segment still filling up pulses instead of sitting still |
 | paused | Fade | 1 | slow breathing |
 | finished | Fade | 1 (green) | same breathing as paused, just green — drops back to idle after 60s on its own (see below) |
 | error | Fade | 1 | fast breathing, hard to miss |
-| *(disconnected)* | — | fixed | just the first pixel, fading blue↔red — this one's not a real printer state, so it's not configurable |
 
 A few quirks worth knowing about:
 - **Finished doesn't wait around for the printer.** On real hardware the printer doesn't
@@ -176,9 +175,12 @@ A few quirks worth knowing about:
   decent proxy for "nobody's watching this right now."
 - **Idle for a while → dims even more.** After `LED_IDLE_TO_SLEEP_MS` (30 min by default,
   in [AppConfig.h](include/AppConfig.h)) of sitting idle, brightness drops to a fifth.
-- **Lost the MQTT connection?** You get a dedicated "not connected" look (first pixel
-  fading blue↔red, everything else off) instead of it quietly pretending to be some other
-  state.
+- **Lost the MQTT connection?** The strip just holds whatever it last showed instead of
+  switching to some kind of "disconnected" look. It's got its own power, so it can sit
+  frozen on the last real state through a brief reconnect (or even a full ESP32 reboot —
+  those happen periodically thanks to the TLS instability below) without any visible
+  glitch. We tried a dedicated blinking indicator for this first; it just made every
+  routine reboot look like something was wrong.
 
 ## What's where
 

@@ -136,19 +136,17 @@ void LedAnimations::update(PrinterState state, int percent, bool chamberLightOn)
     lastFrameMs = now;
 
     // Not a real printer state (haven't heard from it yet, or lost the
-    // connection) — just the first pixel fading blue<->red, rest off, so it
-    // reads as "not connected" at a glance instead of looking like any other
-    // configured state.
+    // connection). Used to flash a dedicated blue<->red indicator here, but
+    // confirmed on real hardware that made every brief reboot (frequent,
+    // thanks to the known TLS instability) look like a jarring glitch. The
+    // strip has its own power and already holds its last frame on its own,
+    // so simplest is best: just don't touch it and let it sit on whatever it
+    // last showed until a real state comes in.
     if (state == PrinterState::Unknown) {
-        FastLED.setBrightness(chamberLightOn ? g_cfg.brightness : 26);
-        fill_solid(leds, LED_COUNT, CRGB::Black);
-        leds[0] = blend(CRGB::Blue, CRGB::Red, beatsin8(15, 0, 255));
-        if (!everRenderedNormal || state != lastRenderedState) {
-            Serial.println("[LED] normal render: state=unknown (disconnected indicator)");
+        if (state != lastRenderedState) {
+            Serial.println("[LED] not connected yet — holding last frame");
             lastRenderedState = state;
-            everRenderedNormal = true;
         }
-        FastLED.show();
         return;
     }
 
