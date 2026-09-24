@@ -6,6 +6,13 @@ just the ESP32 and the printer. It's the successor to
 [Bambu Lab P2S LED Progress/Status Bar](https://makerworld.com/en/models/2172105-bambu-lab-p2s-led-progress-status-bar),
 which needed a whole ESP32 + WLED + Home Assistant automation stack to do the same thing.
 
+> **Status: beta / work in progress.** This was a project to learn and have fun with —
+> I know my way around a lot of this stuff but have basically zero coding background, so
+> AI (Claude) did the actual development here. Even with that help it took a good while
+> to get to something stable and easy enough for someone else to replicate. It works, but
+> expect rough edges. Ideas, suggestions and improvements are very welcome — open an
+> issue or a PR.
+
 ## What it does
 
 - Connects straight to the printer's LAN Mode MQTT broker (TLS, port 8883). That's it —
@@ -16,8 +23,8 @@ which needed a whole ESP32 + WLED + Home Assistant automation stack to do the sa
   finished, error). "Calibrating" covers heating, homing, leveling and filament changes —
   anything that isn't idle, actively extruding, paused, done, or errored.
 - Colors and brightness are editable live from the web UI — no need to touch the code.
-- Dims itself when the printer's chamber light is off, and shows a distinct blink pattern
-  when it can't reach the printer, so you're never left guessing what's going on.
+- Dims itself when the printer's chamber light is off, and just holds its last known
+  state if it loses contact with the printer instead of flashing something alarming.
 - A finished print goes back to idle on its own after a bit, instead of sitting there
   green forever.
 - There's a little diagnostics log built into the web UI so you can see what the
@@ -47,17 +54,40 @@ which needed a whole ESP32 + WLED + Home Assistant automation stack to do the sa
   use a separate 5V supply (say, for a longer strip), just make sure its GND is tied to
   the ESP32's GND too. Skipping that shared ground is a good way to get flaky data and a
   confusing debugging session.
-- If you're still seeing the occasional single-pixel flicker after all that, put a
-  decoupling capacitor (~1000µF) right at the strip's own +5V/GND input — not just near
-  the ESP32. If the strip taps power from a different point than the ESP32 does (common
-  if you're powering both off a shared external supply), a cap sitting only near the
-  ESP32 doesn't do much for voltage sag happening at the strip's own connector.
 
-## Getting it running
+## Flashing from your browser (recommended)
 
-**Just want to flash it, not hack on the code?** Skip all of this —
-[flash it straight from your browser](https://brunohvp.github.io/Bambu-LED-Status-Bar/)
-(Chrome or Edge, USB cable, no software install). Otherwise, to build from source:
+Don't need PlatformIO, drivers, or to pick a firmware file — the installer pulls the
+latest build straight from this repo automatically.
+
+1. **Use Chrome or Edge.** This relies on Web Serial, which Firefox and Safari don't
+   support.
+2. Plug the ESP32 in with a USB **data** cable (not a charge-only one), then open
+   [the web installer](https://brunohvp.github.io/Bambu-LED-Status-Bar/).
+
+   <img src="docs/screenshots/flash-01-landing.png" width="360" alt="The web installer page">
+
+3. Click **Connect**/**Install**. Your browser asks which serial port to use — pick the
+   ESP32's (shows up as "USB Serial" or similar).
+
+   <img src="docs/screenshots/flash-02-port-picker.png" width="360" alt="Browser's serial port picker">
+   <img src="docs/screenshots/flash-03-menu.png" width="360" alt="ESP Web Tools menu — Install / Logs & Console">
+
+4. Confirm the install, then just wait — it flashes and verifies on its own, no file to
+   choose. Keep the tab open/visible while it works (it says why).
+
+   <img src="docs/screenshots/flash-04-confirm.png" width="360" alt="Confirm installation dialog">
+   <img src="docs/screenshots/flash-05-installing.png" width="360" alt="Installing, progress percentage">
+   <img src="docs/screenshots/flash-06-complete.png" width="360" alt="Installation complete">
+
+5. The board reboots straight into its own setup portal — continue with **First boot**
+   below.
+
+   <img src="docs/screenshots/flash-07-device-setup.png" width="360" alt="Device's own setup wizard starting up">
+
+## Building from source
+
+Want to hack on the code instead? Here's the PlatformIO route:
 
 1. Grab [VS Code](https://code.visualstudio.com/) and the **PlatformIO IDE** extension.
 2. Open this folder in VS Code — PlatformIO picks up `platformio.ini` and pulls the
