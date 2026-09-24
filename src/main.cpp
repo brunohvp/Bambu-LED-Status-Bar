@@ -306,6 +306,13 @@ static void handleResetAnim(AsyncWebServerRequest *request) {
     request->send(200, "application/json", "{\"ok\":true}");
 }
 
+// How long to keep trusting the last known state (e.g. still showing red
+// after a cancelled print) once reports stop arriving, before giving up and
+// showing "disconnected" instead. Long enough to ride out a normal TLS
+// reconnect blip without flickering; short enough that turning the printer
+// off for real doesn't leave the LED lying about its state indefinitely.
+static const unsigned long STATE_STALE_MS = 30UL * 1000UL;
+
 // Runs on its own FreeRTOS task (pinned to the core opposite loop()) so a
 // blocking MQTT reconnect — which happens periodically due to the TLS
 // instability documented in the README — never stalls the animation. Most
@@ -317,9 +324,11 @@ static void ledTask(void *) {
         // Trust the last known state through brief reconnects (the printer
         // re-asserts it every ~1s anyway) — snapping to Unknown on every
         // disconnect made the strip flicker gray during the residual TLS
-        // hiccups instead of just holding steady. Unknown is only for "we've
-        // never actually heard from the printer yet."
-        PrinterState ledState = (state.hasPrinter() && ps.everConnected) ? ps.state : PrinterState::Unknown;
+        // hiccups instead of just holding steady. But don't trust it forever:
+        // once nothing's arrived in STATE_STALE_MS, the printer is more
+        // likely actually off/unreachable than mid-blip.
+        bool stale = ps.everConnected && (millis() - ps.lastUpdateMs > STATE_STALE_MS);
+        PrinterState ledState = (state.hasPrinter() && ps.everConnected && !stale) ? ps.state : PrinterState::Unknown;
         LedAnimations::update(ledState, ps.percent, ps.chamberLightOn);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
