@@ -1,235 +1,240 @@
 # Bambu LED Status Bar
 
-Standalone ESP32 firmware that drives a WS2811 LED strip as a progress/status bar for a
-Bambu Lab printer, talking **MQTT directly to the printer** over LAN Mode — no Home
-Assistant, no WLED, no cloud. Successor to
+An ESP32 that talks **directly** to your Bambu Lab printer over MQTT (LAN Mode) and turns
+a WS2811 LED strip into a progress/status bar. No Home Assistant, no WLED, no cloud —
+just the ESP32 and the printer. It's the successor to
 [Bambu Lab P2S LED Progress/Status Bar](https://makerworld.com/en/models/2172105-bambu-lab-p2s-led-progress-status-bar),
-which used an ESP32 + WLED + Home Assistant automation to do the same job.
+which needed a whole ESP32 + WLED + Home Assistant automation stack to do the same thing.
 
-## Features
+## What it does
 
-- Connects straight to the printer's LAN Mode MQTT broker (TLS, port 8883) — no other
-  software required, not even Bambu Studio/Handy.
-- Web-based setup wizard (WiFi + printer discovery) — no hardcoded credentials, no
-  recompiling to configure a new printer.
-- 7 printer states mapped to distinct LED animations (idle, heating, calibrating,
-  printing, paused, finished, error), refined using the printer's sub-stage field so
-  homing/leveling/filament-change show up as "calibrating" instead of a vague "heating".
-- Colors and one global brightness are editable live from the web UI — no recompiling.
-- Dims automatically when the printer's own chamber light is off, and shows a distinct
-  "not connected" indicator when it loses contact with the printer.
-- A "Finished" print returns to idle on its own after a fixed window, instead of staying
-  green forever waiting for the printer to change its own state.
-- Built-in diagnostics log viewable from the web UI — no USB cable or PlatformIO needed
-  to see what the firmware is doing.
-- Flashes over USB with PlatformIO; no cloud account, no app, no subscription.
+- Connects straight to the printer's LAN Mode MQTT broker (TLS, port 8883). That's it —
+  no Bambu Studio, no Handy app, nothing else running.
+- Web-based setup wizard for WiFi + printer discovery. No credentials baked into the
+  firmware, no recompiling every time you want to point it at a different printer.
+- 7 printer states, each with its own LED animation (idle, heating, calibrating,
+  printing, paused, finished, error). It even catches homing/leveling/filament-change and
+  shows "calibrating" for those instead of lumping everything into "heating".
+- Colors and brightness are editable live from the web UI — no need to touch the code.
+- Dims itself when the printer's chamber light is off, and shows a distinct blink pattern
+  when it can't reach the printer, so you're never left guessing what's going on.
+- A finished print goes back to idle on its own after a bit, instead of sitting there
+  green forever.
+- There's a little diagnostics log built into the web UI so you can see what the
+  firmware's doing without dragging out a USB cable and PlatformIO.
+- Flashes over plain USB. No app, no account, no subscription.
 
 ## Hardware
 
-- Any ESP32-WROOM-32 DevKit (no PSRAM required).
-- A WS2811 (or WS2812/compatible, see `LED_COLOR_ORDER`) strip — 10 segments by default,
-  one per 10% of print progress.
+- Any ESP32-WROOM-32 DevKit works (don't need PSRAM or anything fancy).
+- A WS2811 strip (WS2812/compatible too, just flip `LED_COLOR_ORDER`) — 10 segments by
+  default, one per 10% of print progress.
 
-### Wiring
+### Wiring it up
 
 | Strip | ESP32 |
 |---|---|
 | **DIN** (data) | GPIO16 |
-| **GND** | Any GND pin (all GND pins are the same net) |
-| **+5V** | ESP32's 5V/VIN pin, **or** a separate 5V supply — see below |
+| **GND** | Any GND pin — they're all the same net |
+| **+5V** | ESP32's 5V/VIN pin, or a separate 5V supply — see below |
 
-- Put a ~300-500Ω resistor in series on the data line, right before the strip's first
-  LED, if you see flicker or wrong colors on the first pixel.
-- If colors come out swapped, change `LED_COLOR_ORDER` in
-  [AppConfig.h](include/AppConfig.h) from `RGB` to `GRB`.
-- **Power**: measured peak draw for 10 LEDs at full brightness is ~270mA, comfortably
-  within a standard USB port's budget — powering everything from the ESP32's own USB is
-  fine. If you use a separate 5V supply instead (e.g. a longer strip that draws more),
-  its GND **must** still be tied to the ESP32's GND — never power the strip from a
-  separate supply without a shared ground reference.
+- Toss a ~300-500Ω resistor in series on the data line, right before the first LED, if
+  you get flicker or a weird color on that first pixel.
+- Colors look wrong/swapped? Flip `LED_COLOR_ORDER` from `RGB` to `GRB` in
+  [AppConfig.h](include/AppConfig.h).
+- **Power**: we measured ~270mA peak for 10 LEDs at full brightness, which a normal USB
+  port handles fine — you can power the whole thing off the ESP32's own USB. If you do
+  use a separate 5V supply (say, for a longer strip), just make sure its GND is tied to
+  the ESP32's GND too. Skipping that shared ground is a good way to get flaky data and a
+  confusing debugging session.
 
-## Quick start
+## Getting it running
 
-1. Install [VS Code](https://code.visualstudio.com/) + the **PlatformIO IDE** extension.
-2. Open this folder in VS Code — PlatformIO reads `platformio.ini` and fetches the
-   dependencies automatically.
-3. Connect the ESP32 over USB and run:
+1. Grab [VS Code](https://code.visualstudio.com/) and the **PlatformIO IDE** extension.
+2. Open this folder in VS Code — PlatformIO picks up `platformio.ini` and pulls the
+   dependencies on its own.
+3. Plug in the ESP32 over USB and run:
 
 ```bash
 pio run -t upload
 ```
 
-4. To watch the logs:
+4. Want to watch the logs?
 
 ```bash
 pio device monitor
 ```
 
-If the serial port isn't auto-detected, check which `COMx` (Windows) or `/dev/ttyUSBx`
-(Linux/macOS) it enumerated as and pass `--upload-port` / `--monitor-port` explicitly, or
-add `upload_port` / `monitor_port` to `platformio.ini`.
+If the serial port doesn't show up automatically, check which `COMx` (Windows) or
+`/dev/ttyUSBx` (Linux/macOS) it showed up as and pass it explicitly, or just set
+`upload_port` / `monitor_port` in `platformio.ini`.
 
-## First boot — configuring the device
+## First boot
 
-1. With no WiFi saved yet, the ESP32 boots straight into **setup mode**: it creates its
-   own WiFi network, `BambuLED-XXXX` (open, no password).
-2. Connect to that network from your phone or laptop. The captive portal should open on
-   its own; if not, browse to `http://192.168.4.1`.
-3. **Step 1 (WiFi)**: tap **Refresh** to list nearby networks, pick yours and enter the
-   password (or type the SSID manually for a hidden network), then **Connect**. The
-   ESP32 joins your network in the background without dropping the setup AP.
-4. **Step 2 (Printer)**: once connected, it starts listening for the printer's SSDP
-   broadcast automatically. Pick yours from the list (fills in IP/serial), or use
-   **Enter printer info manually** if it's on a different subnet/VLAN the broadcast
-   can't reach. The **Access Code** always has to be typed in — the printer never
-   broadcasts it for security reasons.
-5. The device saves everything and reboots onto your network, dropping the setup AP. If
-   anything goes wrong, `BambuLED-XXXX` reappears so you can try again.
-6. Once connected, visit `http://bambuled.local` (or the IP from the serial log) for
-   live status, or `/settings` for animation colors/brightness and diagnostics.
+1. No WiFi saved yet, so it boots straight into **setup mode** — creates its own network,
+   `BambuLED-XXXX` (open, no password).
+2. Connect to that from your phone or laptop. The captive portal should just pop open; if
+   it doesn't, go to `http://192.168.4.1` yourself.
+3. **Step 1 (WiFi)**: hit **Refresh** to see nearby networks, pick yours, type the
+   password (or the SSID by hand if it's hidden), then **Connect**. It joins your network
+   quietly in the background without kicking you off the setup portal.
+4. **Step 2 (Printer)**: once it's on your network, it starts listening for the printer's
+   own broadcast automatically. See yours in the list? Tap it and IP/serial fill
+   themselves in. Not showing up (different subnet/VLAN)? Use **Enter printer info
+   manually**. Either way you'll still need to type the **Access Code** — the printer
+   never broadcasts that one, for obvious reasons.
+5. It saves everything and reboots onto your network, and the setup AP disappears. If
+   something goes sideways, `BambuLED-XXXX` shows back up so you can retry.
+6. Once it's up, go to `http://bambuled.local` for live status, or `/settings` to tweak
+   colors/brightness and peek at the diagnostics log.
 
-### Finding the printer's IP / Serial / Access Code (LAN Mode)
+### Finding your printer's IP / Serial / Access Code
 
-On the printer's screen: **Settings → WLAN → LAN Only Mode** (enable it). Then tap the
-gear/info icon next to it to see the **Access Code** and **Serial**. The IP is on the
-printer's own network screen (or your router's client list).
+On the printer's screen: **Settings → WLAN → LAN Only Mode**, turn it on. Then tap the
+gear/info icon next to it for the **Access Code** and **Serial**. The IP's on the
+printer's network screen, or just check your router.
 
-## Web UI
+## The web UI
 
-- **`http://bambuled.local`** — live status: network info, MQTT connection state, and a
-  10-segment preview that mirrors exactly what the physical strip shows.
-- **`http://bambuled.local/settings`** — pick 1-2 colors per state (the animation type
-  itself is fixed, hand-picked to fit each state), one brightness slider for the whole
-  strip, and a **Diagnostics** panel with the last ~30 firmware log lines — handy for
-  troubleshooting without a USB cable or PlatformIO installed.
+- **`http://bambuled.local`** — live status page: network info, whether MQTT's connected,
+  and a 10-segment preview that shows exactly what the real strip is doing.
+- **`http://bambuled.local/settings`** — pick 1-2 colors per state (the animation *type*
+  is fixed per state, already tuned to look right — you're not choosing effects, just
+  colors), one brightness slider for everything, and a **Diagnostics** panel with the
+  last ~30 log lines from the firmware. Great for figuring out what's wrong without
+  plugging in a laptop.
 
-## How state detection works
+## How it figures out what the printer's doing
 
-The printer's `gcode_state` (RUNNING/PAUSE/FINISH/FAILED/PREPARE/IDLE) maps to a
-simplified state, refined with two extra signals:
+The printer's `gcode_state` (RUNNING/PAUSE/FINISH/FAILED/PREPARE/IDLE) is the base
+signal, but it's pretty coarse on its own, so two more fields sharpen it up:
 
-- **`stg_cur`** (sub-stage) splits the vague "getting ready" bucket into `heating`
-  (actually heating the nozzle/bed) vs. `calibrating` (homing, bed leveling, filament
-  load/unload) — including mid-print, since some jobs fold homing into the RUNNING phase
-  rather than a separate PREPARE phase. See `mapStage()` in
-  [PrinterMqtt.cpp](src/PrinterMqtt.cpp) for the full stage-ID table (sourced from the
+- **`stg_cur`** (the sub-stage) splits the vague "getting ready" bucket into `heating`
+  (actually heating the nozzle/bed) vs. `calibrating` (homing, bed leveling, loading
+  filament) — and it keeps working mid-print too, since some jobs run homing *inside*
+  the RUNNING phase instead of a separate PREPARE step. The whole stage-ID table is in
+  `mapStage()` in [PrinterMqtt.cpp](src/PrinterMqtt.cpp), borrowed from the
   community-maintained [greghesp/ha-bambulab](https://github.com/greghesp/ha-bambulab)
-  integration, since Bambu doesn't publish it anywhere).
-- **`print_error`** catches errors that happen outside an active print job (e.g. a door
-  sensor tripping while idle) that `gcode_state` alone would miss. It's ignored while
-  `gcode_state == "IDLE"`, because on real hardware `print_error` stays non-zero (stale,
-  from the last failed job) even after the printer genuinely goes back to idle — only a
-  printer reboot clears it, and trusting it unconditionally kept the LED stuck red
-  forever after any cancelled print.
+  integration since Bambu doesn't document this anywhere themselves.
+- **`print_error`** catches errors `gcode_state` alone would miss — like a door sensor
+  tripping while the printer's just sitting idle. One catch: it's ignored whenever
+  `gcode_state == "IDLE"`, because on real hardware `print_error` stubbornly stays
+  non-zero (a leftover from the last failed job) even after the printer's genuinely back
+  to idle — only a reboot clears it. Trusting it blindly meant the LED stayed stuck red
+  forever after any cancelled print, which defeats the whole point.
 
-## LED animations
+## The animations
 
-Colors are ported from the original WLED `presets.json` this project replaces; the
-effect *type* per state is fixed (not user-editable) and lives in
+Colors came straight from the original WLED `presets.json` this project replaces. Which
+*effect* each state uses is fixed (not something you pick in the UI) and lives in
 [LedAnimations.cpp](src/LedAnimations.cpp):
 
-| State | Effect | Colors | Notes |
+| State | Effect | Colors | What it looks like |
 |---|---|---|---|
-| idle | Plasmoid (WLED `Plasma`) | 2 | ambient color wave |
-| heating | Loading | 1 | traveling pixel with a fading trail |
-| calibrating | Bounce | 1 | physics-simulated bouncing ball — replaces WLED's audio-reactive `Gravfreq` effect, since there's no microphone here |
-| printing | Percent | 2 (bar + leading pixel) | one segment per 10% progress; the in-progress segment pulses instead of sitting static |
-| paused | Fade | 1 | breathing |
-| finished | Fade | 1 (green) | breathing, same as paused; auto-reverts to idle after 60s (see below) |
-| error | Fade | 1 | breathing, fast |
-| *(disconnected)* | — | fixed | only the first pixel, fading blue↔red — not a configurable state |
+| idle | Plasmoid (WLED's `Plasma`) | 2 | a slow color wave drifting along the strip |
+| heating | Loading | 1 | a pixel traveling back and forth with a fading trail |
+| calibrating | Bounce | 1 | a little ball bouncing under simulated gravity — stands in for WLED's audio-reactive `Gravfreq`, since there's no mic here |
+| printing | Percent | 2 (bar + tip) | one segment per 10% progress; the segment still filling up pulses instead of sitting still |
+| paused | Fade | 1 | slow breathing |
+| finished | Fade | 1 (green) | same breathing as paused, just green — drops back to idle after 60s on its own (see below) |
+| error | Fade | 1 | fast breathing, hard to miss |
+| *(disconnected)* | — | fixed | just the first pixel, fading blue↔red — this one's not a real printer state, so it's not configurable |
 
-A few behaviors worth knowing about:
-- **Finished doesn't wait on the printer.** On real hardware, the printer doesn't
-  reliably flip `gcode_state` back to `IDLE` once you remove the finished part — it may
-  need an explicit ack on its own screen. Rather than stay green forever, the firmware
-  just stops *showing* Finished after `FINISHED_DISPLAY_MS` (60s, in
-  [LedAnimations.cpp](src/LedAnimations.cpp)) and reverts to idle regardless.
-- **Chamber light off → whole strip dims to ~10%**, regardless of state — a reasonable
-  signal nobody's actively watching the printer.
-- **Long idle → dims further.** After `LED_IDLE_TO_SLEEP_MS` (30 min by default, in
-  [AppConfig.h](include/AppConfig.h)) of uninterrupted idle, brightness drops to 1/5th.
-- **Lost MQTT connection** shows a dedicated indicator (first pixel fading blue↔red, rest
-  off) instead of quietly reusing another state's look.
+A few quirks worth knowing about:
+- **Finished doesn't wait around for the printer.** On real hardware the printer doesn't
+  reliably go back to `IDLE` once you take the part off the plate — sometimes it just
+  sits there until you tap something on its own screen. Rather than stay green forever,
+  the firmware just stops showing Finished after `FINISHED_DISPLAY_MS` (60s, in
+  [LedAnimations.cpp](src/LedAnimations.cpp)) and switches to idle regardless of what the
+  printer says.
+- **Chamber light off → the whole strip drops to ~10%**, no matter what state it's in —
+  decent proxy for "nobody's watching this right now."
+- **Idle for a while → dims even more.** After `LED_IDLE_TO_SLEEP_MS` (30 min by default,
+  in [AppConfig.h](include/AppConfig.h)) of sitting idle, brightness drops to a fifth.
+- **Lost the MQTT connection?** You get a dedicated "not connected" look (first pixel
+  fading blue↔red, everything else off) instead of it quietly pretending to be some other
+  state.
 
-## Project structure
+## What's where
 
 ```
 BambuEsp32MQTT/
 ├── platformio.ini          # board, framework and dependencies
 ├── include/
-│   ├── AppConfig.h          # pins, timeouts, AP/mDNS name, strip config — tune here
-│   ├── Storage.h            # NVS-backed config read/write contract
-│   ├── PrinterDiscovery.h   # SSDP printer discovery contract
-│   ├── PrinterMqtt.h        # MQTT client contract
-│   ├── PrinterStatus.h      # derived printer state struct/enum
+│   ├── AppConfig.h          # pins, timeouts, AP/mDNS name, strip config — tune stuff here
+│   ├── Storage.h            # NVS-backed config read/write
+│   ├── PrinterDiscovery.h   # SSDP printer discovery
+│   ├── PrinterMqtt.h        # the MQTT client
+│   ├── PrinterStatus.h      # the derived printer state struct/enum
 │   ├── LedAnimations.h      # per-state FastLED animation contract
 │   ├── AnimConfig.h         # animation config schema + NVS persistence
 │   ├── Log.h                # small in-RAM ring buffer behind the Diagnostics panel
 │   └── WebPages.h           # HTML/CSS/JS for the setup wizard, status and settings pages
 └── src/
-    ├── main.cpp              # AP (setup) vs. station mode, HTTP API, orchestration
+    ├── main.cpp              # AP (setup) vs. station mode, HTTP API, glue code
     ├── Storage.cpp
     ├── PrinterDiscovery.cpp
     ├── PrinterMqtt.cpp       # MQTTS client, JSON parsing, state derivation
     ├── PrinterStatus.cpp
-    ├── LedAnimations.cpp     # FastLED effects (Fade/Loading/Percent/Plasmoid/Bounce)
+    ├── LedAnimations.cpp     # the actual FastLED effects
     ├── AnimConfig.cpp
     └── Log.cpp
 ```
 
-## Reset / reconfiguration
+## Resetting things
 
-The status page (`http://bambuled.local`) has two buttons:
-- **Reconfigure WiFi** — erases only the WiFi credentials (keeps the printer config) and
+Two buttons on the status page (`http://bambuled.local`):
+- **Reconfigure WiFi** — wipes just the WiFi credentials (keeps the printer setup) and
   drops back into setup mode.
-- **Factory reset** — erases everything (WiFi + printer) and starts fresh.
+- **Factory reset** — wipes everything and starts over from scratch.
 
-## Known limitations
+## Known issues
 
-**Occasional reboot from a TLS bug in the framework, not this project's code.** Every so
-often (observed roughly every 1-3 minutes of active MQTT traffic, sometimes much less
-often) the ESP32 can crash and reboot right after an `SSL - Verification of the message
-MAC failed` / `invalid SSL record` error on the MQTT connection. This traces back to a
-documented, unresolved bug in arduino-esp32's `WiFiClientSecure`/`NetworkClientSecure`
-wrapper around mbedTLS (see
-[espressif/arduino-esp32#8281](https://github.com/espressif/arduino-esp32/issues/8281),
-[#9064](https://github.com/espressif/arduino-esp32/issues/9064)), not anything specific
-to this firmware. It happens with every MQTT client library we tried (PubSubClient,
-256dpi/MQTT, and ESP-IDF's own `esp_mqtt_client`), which is what points to a shared,
-lower-level cause.
+**The ESP32 occasionally reboots on its own — this is a framework bug, not our code.**
+Every so often (roughly every 1-3 minutes of active MQTT traffic in the worst case,
+sometimes way less often than that) the board crashes and reboots right after an
+`SSL - Verification of the message MAC failed` / `invalid SSL record` error on the MQTT
+connection. This is a known, still-unfixed bug in arduino-esp32's
+`WiFiClientSecure`/`NetworkClientSecure` wrapper around mbedTLS (see
+[espressif/arduino-esp32#8281](https://github.com/espressif/arduino-esp32/issues/8281)
+and [#9064](https://github.com/espressif/arduino-esp32/issues/9064)) — not something
+specific to this project. We hit the exact same failure with three different MQTT
+libraries (PubSubClient, 256dpi/MQTT, and ESP-IDF's own `esp_mqtt_client`), which is
+pretty strong evidence it's not a library problem, it's underneath all of them.
 
-The recovery is automatic and clean — the board reboots, reconnects WiFi and MQTT on its
-own within seconds, and nothing configured is lost (it's all in NVS). Because the strip
-holds its last frame through a reboot (once it has its own power), the visible effect is
-usually just a brief pause rather than anything dramatic. The same instability can
-occasionally make the web UI slow to respond for a few seconds while it's happening.
+The good news: recovery is automatic and clean. The board reboots, reconnects WiFi and
+MQTT on its own within seconds, and nothing you've configured gets lost (it all lives in
+NVS). Since the strip keeps its last frame through a reboot (once it has its own power),
+most of the time you won't even notice — just a brief pause. Every once in a while this
+same instability can make the web UI feel sluggish for a few seconds while it's happening.
 
-Two different attempts at eliminating this at the root both hit real walls:
-- Switching to the community [pioarduino](https://github.com/pioarduino/platform-espressif32)
-  platform fork (newer ESP-IDF/mbedTLS) — this project already uses it (see
-  `platformio.ini`), and it didn't remove the bug, only kept the crash frequency roughly
-  the same as with the official platform.
-- Bypassing `WiFiClientSecure` entirely with ESP-IDF's native `esp_mqtt_client` +
-  `esp-tls` — the prebuilt SDK that ships with the Arduino framework doesn't have
-  `CONFIG_ESP_TLS_INSECURE` compiled in, so `esp-tls` refuses to connect at all without a
-  real CA certificate. Fixing that means switching to `framework = espidf, arduino` with
-  a custom `sdkconfig` — a much larger, riskier build-system change, so we reverted.
+We tried pretty hard to kill this at the root and hit real walls both times:
+- Switched to the community [pioarduino](https://github.com/pioarduino/platform-espressif32)
+  platform fork (newer ESP-IDF/mbedTLS) — this project already uses it, and it genuinely
+  didn't fix the bug, just kept the crash frequency about the same as the official
+  platform.
+- Tried bypassing `WiFiClientSecure` completely with ESP-IDF's own `esp_mqtt_client` +
+  `esp-tls`. Ran into a wall there too: the prebuilt SDK that ships with the Arduino
+  framework doesn't have `CONFIG_ESP_TLS_INSECURE` built in, so `esp-tls` flatly refuses
+  to connect without a real CA cert. Fixing that means switching to
+  `framework = espidf, arduino` with a custom `sdkconfig` — a much bigger, riskier change
+  to the whole build, so we backed out.
 
-If you want to chase this further, that framework switch is the next real lever; for
-personal use, the automatic recovery is good enough that we shipped without it.
+If you want to keep chasing this, that framework switch is the next real thing to try.
+For day-to-day use, the auto-recovery is good enough that we shipped without it.
 
-**The printer doesn't always clear its own error/failure state.** If a print is
-cancelled or fails, the printer can keep reporting `gcode_state=FAILED` even after you
-dismiss the error on its screen or home the toolhead — only a printer reboot reliably
-clears it. We tried auto-sending the same "resume" command Bambu Studio/Handy send (which
-does clear it, per [community reports](https://github.com/BambuTools/bambulabs_api/issues/183)) but it requires enabling **Developer Mode** on the printer (else every
-third-party command is rejected with `HMS-0500-0500-0001-0007`), and even with that on,
-it didn't clear the error reliably on our hardware — not worth the security trade-off of
-leaving Developer Mode on for a feature that doesn't work consistently. If your printer
-gets stuck showing red after a cancelled/failed print, reboot the printer.
+**The printer doesn't always clear its own error state.** Cancel or fail a print, and the
+printer can keep reporting `gcode_state=FAILED` even after you dismiss the error on its
+screen or home the toolhead — a full printer reboot is the only thing that reliably fixes
+it. We tried auto-sending the same "resume" command Bambu Studio/Handy send, which
+[apparently does clear it for some people](https://github.com/BambuTools/bambulabs_api/issues/183) — but it needs **Developer Mode** enabled on
+the printer (otherwise every third-party command gets rejected with
+`HMS-0500-0500-0001-0007`), and even with that on, it still didn't clear the error
+reliably on our printer. Didn't feel worth leaving Developer Mode on permanently for a
+fix that doesn't actually work. So: if your printer's stuck showing red after a
+cancelled/failed print, just give it a reboot.
 
 ## License
 
-See [LICENSE](LICENSE) if present, otherwise this project has no explicit license yet —
-ask before reusing commercially.
+Check [LICENSE](LICENSE) if it's there — otherwise this doesn't have an explicit license
+yet, so ask before reusing it commercially.
