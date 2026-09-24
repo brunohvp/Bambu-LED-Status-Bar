@@ -6,8 +6,8 @@ just the ESP32 and the printer. It's the successor to
 [Bambu Lab P2S LED Progress/Status Bar](https://makerworld.com/en/models/2172105-bambu-lab-p2s-led-progress-status-bar),
 which needed a whole ESP32 + WLED + Home Assistant automation stack to do the same thing.
 
-> **Status: beta / work in progress.** This was a project to learn and have fun with —
-> I know my way around a lot of this stuff but have basically zero coding background, so
+> **Status: work in progress.** This was a project to learn and have fun with —
+> I know my way around a lot of this stuff but I'm not good with coding, so
 > AI (Claude) did the actual development here. Even with that help it took a good while
 > to get to something stable and easy enough for someone else to replicate. It works, but
 > expect rough edges. Ideas, suggestions and improvements are very welcome — open an
@@ -121,7 +121,6 @@ If the serial port doesn't show up automatically, check which `COMx` (Windows) o
    password (or the SSID by hand if it's hidden), then **Connect**. It joins your network
    quietly in the background without kicking you off the setup portal.
 
-   <img src="docs/screenshots/02-wifi-step.png" width="360" alt="Step 1: picking a WiFi network">
    <img src="docs/screenshots/03-wifi-connecting.png" width="360" alt="Connecting to the chosen WiFi network">
 
 4. **Step 2 (Printer)**: once it's on your network, it starts listening for the printer's
@@ -153,7 +152,7 @@ printer's network screen, or just check your router.
 - **`http://bambuled.local`** — live status page: network info, whether MQTT's connected,
   and a 10-segment preview that mirrors what the real strip is doing.
 
-  <img src="docs/screenshots/ui-01-status.png" width="420" alt="Status page">
+  <img src="docs/screenshots/ui-01-status55.png" width="420" alt="Status page">
 
 - **`http://bambuled.local/settings`** — pick 1-2 colors per state (the animation *type*
   is fixed per state, already tuned to look right — you're not choosing effects, just
