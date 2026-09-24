@@ -152,7 +152,7 @@ printer's network screen, or just check your router.
 - **`http://bambuled.local`** — live status page: network info, whether MQTT's connected,
   and a 10-segment preview that mirrors what the real strip is doing.
 
-  <img src="docs/screenshots/ui-01-status55.png" width="420" alt="Status page">
+  <img src="docs/screenshots/ui-01-status.png" width="420" alt="Status page">
 
 - **`http://bambuled.local/settings`** — pick 1-2 colors per state (the animation *type*
   is fixed per state, already tuned to look right — you're not choosing effects, just
