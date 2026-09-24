@@ -3,7 +3,6 @@
 const char *printerStateName(PrinterState s) {
     switch (s) {
         case PrinterState::Idle: return "idle";
-        case PrinterState::Heating: return "heating";
         case PrinterState::Calibrating: return "calibrating";
         case PrinterState::Printing: return "printing";
         case PrinterState::Paused: return "paused";

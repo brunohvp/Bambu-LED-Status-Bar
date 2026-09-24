@@ -12,9 +12,9 @@ which needed a whole ESP32 + WLED + Home Assistant automation stack to do the sa
   no Bambu Studio, no Handy app, nothing else running.
 - Web-based setup wizard for WiFi + printer discovery. No credentials baked into the
   firmware, no recompiling every time you want to point it at a different printer.
-- 7 printer states, each with its own LED animation (idle, heating, calibrating,
-  printing, paused, finished, error). It even catches homing/leveling/filament-change and
-  shows "calibrating" for those instead of lumping everything into "heating".
+- 6 printer states, each with its own LED animation (idle, calibrating, printing, paused,
+  finished, error). "Calibrating" covers heating, homing, leveling and filament changes —
+  anything that isn't idle, actively extruding, paused, done, or errored.
 - Colors and brightness are editable live from the web UI — no need to touch the code.
 - Dims itself when the printer's chamber light is off, and shows a distinct blink pattern
   when it can't reach the printer, so you're never left guessing what's going on.
@@ -77,20 +77,35 @@ If the serial port doesn't show up automatically, check which `COMx` (Windows) o
 
 1. No WiFi saved yet, so it boots straight into **setup mode** — creates its own network,
    `BambuLED-XXXX` (open, no password).
+
+   <img src="docs/screenshots/01-setup-ap.png" width="360" alt="BambuLED-0057 network showing up in the WiFi list">
+
 2. Connect to that from your phone or laptop. The captive portal should just pop open; if
    it doesn't, go to `http://192.168.4.1` yourself.
 3. **Step 1 (WiFi)**: hit **Refresh** to see nearby networks, pick yours, type the
    password (or the SSID by hand if it's hidden), then **Connect**. It joins your network
    quietly in the background without kicking you off the setup portal.
+
+   <img src="docs/screenshots/02-wifi-step.png" width="360" alt="Step 1: picking a WiFi network">
+   <img src="docs/screenshots/03-wifi-connecting.png" width="360" alt="Connecting to the chosen WiFi network">
+
 4. **Step 2 (Printer)**: once it's on your network, it starts listening for the printer's
-   own broadcast automatically. See yours in the list? Tap it and IP/serial fill
-   themselves in. Not showing up (different subnet/VLAN)? Use **Enter printer info
-   manually**. Either way you'll still need to type the **Access Code** — the printer
-   never broadcasts that one, for obvious reasons.
+   own broadcast automatically. It might not find it on the very first try — if your
+   printer doesn't show up right away, just hit **Search again**. See yours in the list?
+   Tap it and the IP/serial fill themselves in; you still need to type the **Access
+   Code** yourself (the printer never broadcasts that one). Not showing up at all
+   (different subnet/VLAN)? Use **Enter printer info manually** instead.
+
+   <img src="docs/screenshots/04-printer-found.png" width="360" alt="Step 2: printer found on the network">
+   <img src="docs/screenshots/05-access-code.png" width="360" alt="Step 2: entering the LAN Mode access code">
+
 5. It saves everything and reboots onto your network, and the setup AP disappears. If
    something goes sideways, `BambuLED-XXXX` shows back up so you can retry.
-6. Once it's up, go to `http://bambuled.local` for live status, or `/settings` to tweak
-   colors/brightness and peek at the diagnostics log.
+
+   <img src="docs/screenshots/06-saved.png" width="360" alt="Saved, rebooting onto your network">
+
+6. Once it's up, go to `http://bambuled.local` (or the IP shown during setup) for live
+   status, or `/settings` to tweak colors/brightness and peek at the diagnostics log.
 
 ### Finding your printer's IP / Serial / Access Code
 
@@ -113,10 +128,10 @@ printer's network screen, or just check your router.
 The printer's `gcode_state` (RUNNING/PAUSE/FINISH/FAILED/PREPARE/IDLE) is the base
 signal, but it's pretty coarse on its own, so two more fields sharpen it up:
 
-- **`stg_cur`** (the sub-stage) splits the vague "getting ready" bucket into `heating`
-  (actually heating the nozzle/bed) vs. `calibrating` (homing, bed leveling, loading
-  filament) — and it keeps working mid-print too, since some jobs run homing *inside*
-  the RUNNING phase instead of a separate PREPARE step. The whole stage-ID table is in
+- **`stg_cur`** (the sub-stage) confirms the vague "getting ready" bucket really is
+  `calibrating` (heating the nozzle/bed, homing, bed leveling, loading filament, all of
+  it) — and it keeps working mid-print too, since some jobs run homing *inside* the
+  RUNNING phase instead of a separate PREPARE step. The whole stage-ID table is in
   `mapStage()` in [PrinterMqtt.cpp](src/PrinterMqtt.cpp), borrowed from the
   community-maintained [greghesp/ha-bambulab](https://github.com/greghesp/ha-bambulab)
   integration since Bambu doesn't document this anywhere themselves.
@@ -136,8 +151,7 @@ Colors came straight from the original WLED `presets.json` this project replaces
 | State | Effect | Colors | What it looks like |
 |---|---|---|---|
 | idle | Plasmoid (WLED's `Plasma`) | 2 | a slow color wave drifting along the strip |
-| heating | Loading | 1 | a pixel traveling back and forth with a fading trail |
-| calibrating | Bounce | 1 | a little ball bouncing under simulated gravity — stands in for WLED's audio-reactive `Gravfreq`, since there's no mic here |
+| calibrating | Loading | 2 (trail + head) | a pixel traveling back and forth with a fading trail — covers heating, homing, leveling, filament changes, anything "getting ready" |
 | printing | Percent | 2 (bar + tip) | one segment per 10% progress; the segment still filling up pulses instead of sitting still |
 | paused | Fade | 1 | slow breathing |
 | finished | Fade | 1 (green) | same breathing as paused, just green — drops back to idle after 60s on its own (see below) |

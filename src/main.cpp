@@ -273,7 +273,6 @@ static void handleGetAnim(AsyncWebServerRequest *request) {
     AnimConfigSet cfg = AnimConfigStore::load();
     JsonDocument doc;
     stateAnimToJson(doc["idle"].to<JsonObject>(), cfg.idle);
-    stateAnimToJson(doc["heating"].to<JsonObject>(), cfg.heating);
     stateAnimToJson(doc["calibrating"].to<JsonObject>(), cfg.calibrating);
     stateAnimToJson(doc["printing"].to<JsonObject>(), cfg.printing);
     stateAnimToJson(doc["paused"].to<JsonObject>(), cfg.paused);
@@ -289,7 +288,6 @@ static void handleSaveAnim(AsyncWebServerRequest *request, JsonVariant &json) {
     JsonObject obj = json.as<JsonObject>();
     AnimConfigSet cfg = AnimConfigStore::load(); // start from what's saved so a partial body doesn't wipe the rest
     jsonToStateAnim(obj["idle"], cfg.idle);
-    jsonToStateAnim(obj["heating"], cfg.heating);
     jsonToStateAnim(obj["calibrating"], cfg.calibrating);
     jsonToStateAnim(obj["printing"], cfg.printing);
     jsonToStateAnim(obj["paused"], cfg.paused);

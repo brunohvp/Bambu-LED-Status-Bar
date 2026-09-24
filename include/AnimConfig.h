@@ -12,7 +12,6 @@ enum class LedEffect : uint8_t {
     Loading,
     Percent,
     Plasmoid,
-    Bounce,
 };
 
 const char *ledEffectName(LedEffect e); // "Off", "Solid", "Fade", ...
@@ -35,8 +34,7 @@ struct StateAnimConfig {
 // brightness after a timeout (see LED_IDLE_TO_SLEEP_MS).
 struct AnimConfigSet {
     StateAnimConfig idle;        // 2 colors (Plasmoid blend)
-    StateAnimConfig heating;     // 1 color
-    StateAnimConfig calibrating; // 1 color, slow
+    StateAnimConfig calibrating; // 2 colors (Loading trail) — covers heating too
     StateAnimConfig printing;    // 2 colors (bar + leading pixel)
     StateAnimConfig paused;      // 1 color
     StateAnimConfig finished;    // 1 color

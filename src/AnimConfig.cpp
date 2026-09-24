@@ -2,7 +2,7 @@
 #include <Preferences.h>
 
 static const char *NS = "bambuled";
-static const char *KEY = "anim_v2"; // bump this (v3, v4, ...) if the struct layout ever changes
+static const char *KEY = "anim_v3"; // bump this (v4, v5, ...) if the struct layout ever changes
 
 const char *ledEffectName(LedEffect e) {
     switch (e) {
@@ -12,7 +12,6 @@ const char *ledEffectName(LedEffect e) {
         case LedEffect::Loading: return "Loading";
         case LedEffect::Percent: return "Percent";
         case LedEffect::Plasmoid: return "Plasmoid";
-        case LedEffect::Bounce: return "Bounce";
         default: return "Solid";
     }
 }
@@ -25,8 +24,9 @@ AnimConfigSet AnimConfigStore::defaults() {
     // {133,245,255}/{0,0,255} match the original WLED preset's col[0]/col[1]
     // exactly (fx:133 "Plasma" -> our Plasmoid, sx:134 -> speed in LedAnimations.cpp).
     d.idle        = { LedEffect::Plasmoid, {133, 245, 255}, {0, 0, 255} };
-    d.heating     = { LedEffect::Loading,  {255, 0, 0},   {255, 0, 0}   };
-    d.calibrating = { LedEffect::Bounce,   {0, 191, 255}, {0, 191, 255} }; // WLED fx:158 GRAVFREQ -> our Bounce (no-mic replacement)
+    // Blue trail, green head — covers every "getting ready" sub-stage
+    // (heating, homing, leveling, filament load/unload), not just heating.
+    d.calibrating = { LedEffect::Loading,  {0, 0, 255},   {0, 255, 0}   };
     d.printing    = { LedEffect::Percent,  {0, 174, 239}, {255, 255, 255} };
     d.paused      = { LedEffect::Fade,     {255, 170, 0}, {255, 170, 0} };
     d.finished    = { LedEffect::Fade,     {0, 255, 68},  {0, 255, 68}  }; // same as Paused, just green

@@ -90,7 +90,7 @@ static PrinterState mapGcodeState(const String &s) {
     if (s == "PAUSE" || s == "PAUSED") return PrinterState::Paused;
     if (s == "FINISH" || s == "FINISHED") return PrinterState::Finished;
     if (s == "FAILED") return PrinterState::Error;
-    if (s == "PREPARE") return PrinterState::Heating;
+    if (s == "PREPARE") return PrinterState::Calibrating;
     if (s == "IDLE") return PrinterState::Idle;
     return PrinterState::Unknown;
 }
@@ -103,13 +103,11 @@ static PrinterState mapGcodeState(const String &s) {
 // meaning "don't override — gcode_state already has this covered".
 static PrinterState mapStage(int stg) {
     switch (stg) {
-        case 2:  // heatbed_preheating
-        case 7:  // heating_hotend
-        case 15: // checking_extruder_temperature
-            return PrinterState::Heating;
         case 1:  // auto_bed_leveling
+        case 2:  // heatbed_preheating
         case 3:  // sweeping_xy_mech_mode
         case 4:  // changing_filament
+        case 7:  // heating_hotend
         case 8:  // calibrating_extrusion
         case 9:  // scanning_bed_surface
         case 10: // inspecting_first_layer
@@ -117,12 +115,13 @@ static PrinterState mapStage(int stg) {
         case 12: // calibrating_micro_lidar
         case 13: // homing_toolhead
         case 14: // cleaning_nozzle_tip
+        case 15: // checking_extruder_temperature
         case 18: // calibrating_micro_lidar (dup id in source table)
         case 19: // calibrating_extrusion_flow
         case 22: // filament_unloading
         case 24: // filament_loading
         case 25: // calibrating_motor_noise
-            return PrinterState::Calibrating;
+            return PrinterState::Calibrating; // covers heating too — no separate state for it
         case 5:  // m400_pause
         case 6:  // paused_filament_runout
         case 16: // paused_user
@@ -210,15 +209,16 @@ static void onMessage(char *topic, byte *payload, unsigned int length) {
             Serial.printf("[MQTT] stg_cur -> %d\n", stage);
             lastLoggedStage = stage;
         }
-        // Refine both the vague "PREPARE" bucket (Heating) and, confirmed on
-        // real hardware, homing/leveling/filament-change sub-stages that
-        // happen *after* gcode_state has already flipped to RUNNING (some
-        // print jobs fold the initial homing into the job itself rather than
-        // a separate PREPARE phase) — mapStage() returns Unknown for
-        // "printing"(0)/idle, which leaves Printing alone as expected once
-        // real extrusion starts. PAUSE/FINISH/FAILED/IDLE are already
-        // unambiguous, don't second-guess those.
-        if (g_status.state == PrinterState::Heating || g_status.state == PrinterState::Printing) {
+        // Refine Calibrating (covers gcode_state=PREPARE already, but stg_cur
+        // can also mean the printer's mid-print pause sub-reasons) and,
+        // confirmed on real hardware, homing/leveling/filament-change
+        // sub-stages that happen *after* gcode_state has already flipped to
+        // RUNNING (some print jobs fold the initial homing into the job
+        // itself rather than a separate PREPARE phase) — mapStage() returns
+        // Unknown for "printing"(0)/idle, which leaves Printing alone as
+        // expected once real extrusion starts. FINISH/FAILED/IDLE are
+        // already unambiguous, don't second-guess those.
+        if (g_status.state == PrinterState::Calibrating || g_status.state == PrinterState::Printing) {
             PrinterState refined = mapStage(stage);
             if (refined != PrinterState::Unknown) g_status.state = refined;
         }

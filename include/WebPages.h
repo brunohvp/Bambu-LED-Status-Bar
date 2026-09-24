@@ -346,10 +346,10 @@ const UNKNOWN_CFG = {effect:'Fade', color1:'#505050', color2:'#505050'};
 // Mirrors the hardcoded per-state speed/intensity in LedAnimations.cpp —
 // these aren't part of the saved config (see Settings page comment).
 const SPEED_INTENSITY = {
-  idle: {speed:40, intensity:128}, heating: {speed:130, intensity:100},
-  calibrating: {speed:25, intensity:128}, printing: {speed:128, intensity:128},
-  paused: {speed:60, intensity:128}, finished: {speed:128, intensity:128},
-  error: {speed:255, intensity:128}, unknown: {speed:60, intensity:128},
+  idle: {speed:134, intensity:128}, calibrating: {speed:130, intensity:100},
+  printing: {speed:128, intensity:128}, paused: {speed:60, intensity:128},
+  finished: {speed:60, intensity:128}, error: {speed:255, intensity:128},
+  unknown: {speed:60, intensity:128},
 };
 
 function hexToRgb(hex){ const v=(hex||'#000000').replace('#',''); return [parseInt(v.substr(0,2),16)||0,parseInt(v.substr(2,2),16)||0,parseInt(v.substr(4,2),16)||0]; }
@@ -576,13 +576,12 @@ static const char SETTINGS_PAGE_HTML[] PROGMEM = R"HTML(
 // speed/intensity mirror the hardcoded values in LedAnimations.cpp — kept
 // here only so the in-browser preview animates at roughly the same pace.
 const STATES = [
-  {key:'idle',        label:'Idle',        colors:2, c1:'Color A',    c2:'Color B',        speed:40,  intensity:128},
-  {key:'heating',      label:'Heating',      colors:1, c1:'Color',                            speed:130, intensity:100},
-  {key:'calibrating',  label:'Calibrating',  colors:1, c1:'Color',                            speed:25,  intensity:128},
-  {key:'printing',     label:'Printing',     colors:2, c1:'Bar Color',  c2:'Leading Pixel',  speed:128, intensity:128},
-  {key:'paused',       label:'Paused',       colors:1, c1:'Color',                            speed:60,  intensity:128},
-  {key:'finished',     label:'Finished',     colors:1, c1:'Color',                            speed:128, intensity:128},
-  {key:'error',        label:'Error',        colors:1, c1:'Color',                            speed:255, intensity:128},
+  {key:'idle',        label:'Idle',        colors:2, c1:'Color A',   c2:'Color B',        speed:134, intensity:128},
+  {key:'calibrating',  label:'Calibrating',  colors:2, c1:'Trail Color', c2:'Head Color',   speed:130, intensity:100},
+  {key:'printing',     label:'Printing',     colors:2, c1:'Bar Color', c2:'Leading Pixel',  speed:128, intensity:128},
+  {key:'paused',       label:'Paused',       colors:1, c1:'Color',                          speed:60,  intensity:128},
+  {key:'finished',     label:'Finished',     colors:1, c1:'Color',                          speed:60,  intensity:128},
+  {key:'error',        label:'Error',        colors:1, c1:'Color',                          speed:255, intensity:128},
 ];
 // Plain hex text field (always works, no OS/WebView dependency) + a native
 // color-swatch button as a convenience picker where the browser supports it.

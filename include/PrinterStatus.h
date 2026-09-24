@@ -7,8 +7,7 @@
 enum class PrinterState {
     Unknown,
     Idle,
-    Heating,
-    Calibrating,
+    Calibrating, // covers all "getting ready" sub-stages, including heating
     Printing,
     Paused,
     Finished,
