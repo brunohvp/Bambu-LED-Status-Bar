@@ -121,7 +121,6 @@ If the serial port doesn't show up automatically, check which `COMx` (Windows) o
    password (or the SSID by hand if it's hidden), then **Connect**. It joins your network
    quietly in the background without kicking you off the setup portal.
 
-   <img src="docs/screenshots/02-wifi-step.png" width="360" alt="Step 1: picking a WiFi network">
    <img src="docs/screenshots/03-wifi-connecting.png" width="360" alt="Connecting to the chosen WiFi network">
 
 4. **Step 2 (Printer)**: once it's on your network, it starts listening for the printer's
@@ -153,7 +152,7 @@ printer's network screen, or just check your router.
 - **`http://bambuled.local`** — live status page: network info, whether MQTT's connected,
   and a 10-segment preview that mirrors what the real strip is doing.
 
-  <img src="docs/screenshots/ui-01-status.png" width="420" alt="Status page">
+  <img src="docs/screenshots/ui-01-status55.png" width="420" alt="Status page">
 
 - **`http://bambuled.local/settings`** — pick 1-2 colors per state (the animation *type*
   is fixed per state, already tuned to look right — you're not choosing effects, just
