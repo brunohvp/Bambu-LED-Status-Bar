@@ -306,6 +306,25 @@ static void handleResetAnim(AsyncWebServerRequest *request) {
     request->send(200, "application/json", "{\"ok\":true}");
 }
 
+// Runs on its own FreeRTOS task (pinned to the core opposite loop()) so a
+// blocking MQTT reconnect — which happens periodically due to the TLS
+// instability documented in the README — never stalls the animation. Most
+// effects (a full-strip fade/wave) hid that stall well; Loading's single
+// moving pixel made it obvious as a visible stutter.
+static void ledTask(void *) {
+    for (;;) {
+        PrinterStatus ps = PrinterMqtt::getStatus();
+        // Trust the last known state through brief reconnects (the printer
+        // re-asserts it every ~1s anyway) — snapping to Unknown on every
+        // disconnect made the strip flicker gray during the residual TLS
+        // hiccups instead of just holding steady. Unknown is only for "we've
+        // never actually heard from the printer yet."
+        PrinterState ledState = (state.hasPrinter() && ps.everConnected) ? ps.state : PrinterState::Unknown;
+        LedAnimations::update(ledState, ps.percent, ps.chamberLightOn);
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
 static void startStaMode() {
     apMode = false;
     WiFi.mode(WIFI_STA);
@@ -354,6 +373,7 @@ static void startStaMode() {
     Log::add("[WiFi] connected, IP=%s", WiFi.localIP().toString().c_str());
 
     LedAnimations::begin();
+    xTaskCreatePinnedToCore(ledTask, "led", 3072, nullptr, 1, nullptr, 0);
 
     if (state.hasPrinter()) {
         PrinterMqtt::begin(state.printerIp, state.printerSerial, state.printerAccessCode);
@@ -427,15 +447,8 @@ void loop() {
         delay(1);
     } else {
         PrinterMqtt::loop();
-
-        PrinterStatus ps = PrinterMqtt::getStatus();
-        // Trust the last known state through brief reconnects (the printer
-        // re-asserts it every ~1s anyway) — snapping to Unknown on every
-        // disconnect made the strip flicker gray during the residual TLS
-        // hiccups instead of just holding steady. Unknown is only for "we've
-        // never actually heard from the printer yet."
-        PrinterState ledState = (state.hasPrinter() && ps.everConnected) ? ps.state : PrinterState::Unknown;
-        LedAnimations::update(ledState, ps.percent, ps.chamberLightOn);
+        // LED rendering runs on its own task (see ledTask) so a blocking MQTT
+        // reconnect never stalls the animation.
     }
 
     static unsigned long lastHeapLogMs = 0;
