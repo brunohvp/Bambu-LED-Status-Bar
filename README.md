@@ -3,8 +3,9 @@
 An ESP32 that talks **directly** to your Bambu Lab printer over MQTT (LAN Mode) and turns
 a WS2811 LED strip into a progress/status bar. No Home Assistant, no WLED, no cloud —
 just the ESP32 and the printer. It's the successor to
-[Bambu Lab P2S LED Progress/Status Bar](https://makerworld.com/en/models/2172105-bambu-lab-p2s-led-progress-status-bar),
+[Bambu Lab P2S LED Progress/Status Bar](https://makerworld.com/en/models/2172105-bambu-lab-p2s-led-progress-status-bar-ha-mqtt),
 which needed a whole ESP32 + WLED + Home Assistant automation stack to do the same thing.
+The MakerWorld page also has the 3D-printable LED mount, wiring guide and parts list.
 
 > **Status: work in progress.** This was a project to learn and have fun with —
 > I know my way around a lot of this stuff but I'm not good with coding, so
