@@ -47,6 +47,11 @@ which needed a whole ESP32 + WLED + Home Assistant automation stack to do the sa
   use a separate 5V supply (say, for a longer strip), just make sure its GND is tied to
   the ESP32's GND too. Skipping that shared ground is a good way to get flaky data and a
   confusing debugging session.
+- If you're still seeing the occasional single-pixel flicker after all that, put a
+  decoupling capacitor (~1000µF) right at the strip's own +5V/GND input — not just near
+  the ESP32. If the strip taps power from a different point than the ESP32 does (common
+  if you're powering both off a shared external supply), a cap sitting only near the
+  ESP32 doesn't do much for voltage sag happening at the strip's own connector.
 
 ## Getting it running
 
