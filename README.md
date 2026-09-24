@@ -116,12 +116,19 @@ printer's network screen, or just check your router.
 ## The web UI
 
 - **`http://bambuled.local`** — live status page: network info, whether MQTT's connected,
-  and a 10-segment preview that shows exactly what the real strip is doing.
+  and a 10-segment preview that mirrors what the real strip is doing.
 - **`http://bambuled.local/settings`** — pick 1-2 colors per state (the animation *type*
   is fixed per state, already tuned to look right — you're not choosing effects, just
   colors), one brightness slider for everything, and a **Diagnostics** panel with the
   last ~30 log lines from the firmware. Great for figuring out what's wrong without
   plugging in a laptop.
+
+Heads up: the color you pick and the in-browser preview are both just the theoretical RGB
+value — what actually comes out of your specific strip can look noticeably different (a
+color that reads "orange" on screen showed up more yellow on ours, for instance). This
+varies by LED brand/batch, not something the firmware can correct for. If a color looks
+off on your strip, just nudge it in Settings until it looks right in person — don't trust
+the on-screen preview as gospel.
 
 ## How it figures out what the printer's doing
 

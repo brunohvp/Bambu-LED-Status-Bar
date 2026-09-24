@@ -34,7 +34,7 @@ struct StateAnimConfig {
 // brightness after a timeout (see LED_IDLE_TO_SLEEP_MS).
 struct AnimConfigSet {
     StateAnimConfig idle;        // 2 colors (Plasmoid blend)
-    StateAnimConfig calibrating; // 2 colors (Loading trail) — covers heating too
+    StateAnimConfig calibrating; // 1 color (Loading) — covers heating too
     StateAnimConfig printing;    // 2 colors (bar + leading pixel)
     StateAnimConfig paused;      // 1 color
     StateAnimConfig finished;    // 1 color

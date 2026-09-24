@@ -577,7 +577,7 @@ static const char SETTINGS_PAGE_HTML[] PROGMEM = R"HTML(
 // here only so the in-browser preview animates at roughly the same pace.
 const STATES = [
   {key:'idle',        label:'Idle',        colors:2, c1:'Color A',   c2:'Color B',        speed:134, intensity:128},
-  {key:'calibrating',  label:'Calibrating',  colors:2, c1:'Trail Color', c2:'Head Color',   speed:130, intensity:100},
+  {key:'calibrating',  label:'Calibrating',  colors:1, c1:'Color',                          speed:130, intensity:100},
   {key:'printing',     label:'Printing',     colors:2, c1:'Bar Color', c2:'Leading Pixel',  speed:128, intensity:128},
   {key:'paused',       label:'Paused',       colors:1, c1:'Color',                          speed:60,  intensity:128},
   {key:'finished',     label:'Finished',     colors:1, c1:'Color',                          speed:60,  intensity:128},

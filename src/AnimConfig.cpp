@@ -24,11 +24,11 @@ AnimConfigSet AnimConfigStore::defaults() {
     // {133,245,255}/{0,0,255} match the original WLED preset's col[0]/col[1]
     // exactly (fx:133 "Plasma" -> our Plasmoid, sx:134 -> speed in LedAnimations.cpp).
     d.idle        = { LedEffect::Plasmoid, {133, 245, 255}, {0, 0, 255} };
-    // Blue trail, green head — covers every "getting ready" sub-stage
-    // (heating, homing, leveling, filament load/unload), not just heating.
-    d.calibrating = { LedEffect::Loading,  {0, 0, 255},   {0, 255, 0}   };
+    // Covers every "getting ready" sub-stage (heating, homing, leveling,
+    // filament load/unload), not just heating.
+    d.calibrating = { LedEffect::Loading,  {0, 0, 255},   {0, 0, 255}   };
     d.printing    = { LedEffect::Percent,  {0, 174, 239}, {255, 255, 255} };
-    d.paused      = { LedEffect::Fade,     {255, 170, 0}, {255, 170, 0} };
+    d.paused      = { LedEffect::Fade,     {255, 60, 0},  {255, 60, 0}  }; // less green so it doesn't skew yellow/green on the strip
     d.finished    = { LedEffect::Fade,     {0, 255, 68},  {0, 255, 68}  }; // same as Paused, just green
     d.error       = { LedEffect::Fade,     {255, 0, 0},   {255, 0, 0}   };
     d.brightness  = 128; // ~50%
