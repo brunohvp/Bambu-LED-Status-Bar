@@ -382,7 +382,12 @@ static void startStaMode() {
     Log::add("[WiFi] connected, IP=%s", WiFi.localIP().toString().c_str());
 
     LedAnimations::begin();
-    xTaskCreatePinnedToCore(ledTask, "led", 3072, nullptr, 1, nullptr, 0);
+    // Pinned to core 1 (same as loop()/Arduino default), not core 0 — that's
+    // where the WiFi stack runs, and it's already documented as sensitive to
+    // timing disruption (see WiFi.setSleep(false) above). FreeRTOS still
+    // preemptively time-slices this against loop() on the same core, which is
+    // all that's needed to survive a blocking MQTT reconnect without stutter.
+    xTaskCreatePinnedToCore(ledTask, "led", 3072, nullptr, 1, nullptr, 1);
 
     if (state.hasPrinter()) {
         PrinterMqtt::begin(state.printerIp, state.printerSerial, state.printerAccessCode);

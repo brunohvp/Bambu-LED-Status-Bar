@@ -118,8 +118,11 @@ static void renderEffect(const StateAnimConfig &c, int percent, uint8_t speed, u
 void LedAnimations::begin() {
     FastLED.addLeds<WS2811, LED_DATA_PIN, LED_COLOR_ORDER>(leds, LED_COUNT);
     FastLED.setBrightness(LED_MAX_BRIGHTNESS);
-    fill_solid(leds, LED_COUNT, CRGB::Black);
-    FastLED.show();
+    // Deliberately no fill_solid()/show() here — the strip has its own power
+    // and already holds whatever it displayed before this boot; blacking it
+    // out on every reboot was the actual source of the "flash" (reboots are
+    // frequent, thanks to the known TLS instability). Leave it alone until
+    // update() has real data to render.
     reloadConfig();
 }
 
