@@ -6,8 +6,8 @@ just the ESP32 and the printer. It's the successor to
 [Bambu Lab P2S LED Progress/Status Bar](https://makerworld.com/en/models/2172105-bambu-lab-p2s-led-progress-status-bar),
 which needed a whole ESP32 + WLED + Home Assistant automation stack to do the same thing.
 
-> **Status: beta / work in progress.** This was a project to learn and have fun with —
-> I know my way around a lot of this stuff but have basically zero coding background, so
+> **Status: work in progress.** This was a project to learn and have fun with —
+> I know my way around a lot of this stuff but I'm not good with coding, so
 > AI (Claude) did the actual development here. Even with that help it took a good while
 > to get to something stable and easy enough for someone else to replicate. It works, but
 > expect rough edges. Ideas, suggestions and improvements are very welcome — open an
