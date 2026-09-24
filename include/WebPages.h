@@ -244,14 +244,35 @@ document.getElementById('btnSave').addEventListener('click', async () => {
       body: JSON.stringify({printer_ip: pip, printer_serial: pserial, printer_access_code: pcode})
     });
     if(!r.ok) throw new Error('bad response');
-    status.textContent = 'Saved! Rebooting and connecting to your network...';
     status.className = 'status ok';
+    startRedirectCountdown(status);
   }catch(e){
     status.textContent = 'Error saving. Try again.';
     status.className = 'status err';
     document.getElementById('btnSave').disabled = false;
   }
 });
+
+// bambuled.local doesn't always resolve (router/OS-dependent mDNS support),
+// so fall back to the raw IP we already got back in step 1 — same device,
+// same DHCP lease, should still be reachable once it reboots into station mode.
+function startRedirectCountdown(status){
+  if (!connectedIp) {
+    status.textContent = 'Saved! Rebooting — reconnect to your WiFi and visit http://bambuled.local';
+    return;
+  }
+  const url = `http://${connectedIp}`;
+  let secs = 20;
+  const render = () => {
+    status.innerHTML = `Saved! Redirecting to <a href="${url}">${url}</a> in ${secs}s...`;
+  };
+  render();
+  const timer = setInterval(() => {
+    secs--;
+    if (secs <= 0) { clearInterval(timer); window.location.href = url; return; }
+    render();
+  }, 1000);
+}
 
 setManualMode(false);
 scanWifi();
