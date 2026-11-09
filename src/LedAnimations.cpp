@@ -1,6 +1,9 @@
 #include "LedAnimations.h"
 #include <FastLED.h>
 #include "AppConfig.h"
+#include "StripConfig.h"
+#include "NightMode.h"
+#include "Log.h"
 
 // Renders whatever StateAnimConfig the current printer state maps to (see
 // AnimConfig.h). Only colors (1 or 2, per state) and one global brightness
@@ -9,7 +12,15 @@
 // Percent/Plasmoid) are original FastLED reimplementations of the WLED
 // effects this project used to run — see README.
 
-static CRGB leds[LED_COUNT];
+// Data pin, LED count, chipset and color order come from StripConfig
+// (Settings > LED strip), read once in begin() and handed to FastLED's runtime
+// Channel API (FastLED.add(fl::ChannelConfig)) — addLeds<> would need all of
+// them as compile-time template arguments.
+static CRGB *leds = nullptr;
+static uint16_t ledCount = 0;
+static volatile bool blackoutRequested = false;
+static bool blackoutShown = false;
+
 static const uint16_t FRAME_INTERVAL_MS = 25; // ~40fps
 
 static unsigned long lastFrameMs = 0;
@@ -32,6 +43,11 @@ static unsigned long finishedSinceMs = 0;
 // every frame.
 static portMUX_TYPE g_cfgMux = portMUX_INITIALIZER_UNLOCKED;
 static AnimConfigSet g_cfg;
+static NightModeConfig g_night; // guarded by g_cfgMux too
+
+// Night-mode window state, re-evaluated once a second (not every frame).
+static volatile bool g_nightActive = false;
+static unsigned long lastNightCheckMs = 0;
 static PrinterState lastRenderedState = PrinterState::Unknown;
 static bool everRenderedNormal = false;
 
@@ -44,23 +60,23 @@ static uint8_t speedToBpm(uint8_t sx) {
 static void fxFade(CRGB color, uint8_t speed, uint8_t brightness) {
     FastLED.setBrightness(brightness);
     uint8_t b = beatsin8(speedToBpm(speed), 15, 255);
-    fill_solid(leds, LED_COUNT, color);
-    nscale8(leds, LED_COUNT, b);
+    fill_solid(leds, ledCount, color);
+    nscale8(leds, ledCount, b);
 }
 
 static void fxLoading(CRGB colorA, CRGB colorB, uint8_t speed, uint8_t intensity, uint8_t brightness) {
     FastLED.setBrightness(brightness);
-    fadeToBlackBy(leds, LED_COUNT, map(intensity, 0, 255, 80, 15)); // higher intensity = shorter trail
+    fadeToBlackBy(leds, ledCount, map(intensity, 0, 255, 80, 15)); // higher intensity = shorter trail
     uint8_t bpm = speedToBpm(speed);
-    uint8_t pos = beatsin8(bpm, 0, LED_COUNT - 1);
+    uint16_t pos = beatsin16(bpm, 0, ledCount - 1); // 16-bit: strips can be longer than 255 LEDs
     leds[pos] = blend(colorA, colorB, beatsin8(bpm / 2 + 1, 0, 255));
 }
 
 static void fxPercent(CRGB color, CRGB background, CRGB leadColor, int percent, uint8_t brightness) {
     FastLED.setBrightness(brightness);
     percent = constrain(percent, 0, 100);
-    int lit = (percent * LED_COUNT) / 100; // fully completed segments (0 at 0-9%, 1 at 10-19%, ...)
-    for (int i = 0; i < LED_COUNT; i++) {
+    int lit = (percent * ledCount) / 100; // fully completed LEDs (with 10 LEDs: 0 at 0-9%, 1 at 10-19%, ...)
+    for (int i = 0; i < ledCount; i++) {
         if (i < lit) {
             leds[i] = color; // done — solid
         } else if (i == lit) {
@@ -78,8 +94,8 @@ static void fxPercent(CRGB color, CRGB background, CRGB leadColor, int percent, 
 static void fxPlasmoid(CRGB colorA, CRGB colorB, uint8_t speed, uint8_t brightness) {
     FastLED.setBrightness(brightness);
     uint8_t basePhase = beat8(speedToBpm(speed) / 2 + 1);
-    for (int i = 0; i < LED_COUNT; i++) {
-        uint8_t phaseOffset = (uint8_t)((i * 256) / LED_COUNT);
+    for (int i = 0; i < ledCount; i++) {
+        uint8_t phaseOffset = (uint8_t)((i * 256) / ledCount);
         uint8_t wave = sin8(basePhase + phaseOffset);
         leds[i] = blend(colorA, colorB, wave);
     }
@@ -92,11 +108,11 @@ static void renderEffect(const StateAnimConfig &c, int percent, uint8_t speed, u
     switch (c.effect) {
         case LedEffect::Off:
             FastLED.setBrightness(0);
-            fill_solid(leds, LED_COUNT, CRGB::Black);
+            fill_solid(leds, ledCount, CRGB::Black);
             break;
         case LedEffect::Solid:
             FastLED.setBrightness(brightness);
-            fill_solid(leds, LED_COUNT, c1);
+            fill_solid(leds, ledCount, c1);
             break;
         case LedEffect::Fade:
             fxFade(c1, speed, brightness);
@@ -115,9 +131,48 @@ static void renderEffect(const StateAnimConfig &c, int percent, uint8_t speed, u
     }
 }
 
+// Same timings the matching addLeds<CHIPSET> controllers use (see chipsets.h).
+static fl::ClocklessChipset clocklessFor(LedChipset chipset, int pin) {
+    switch (chipset) {
+        case LedChipset::WS2811:     return fl::makeClockless<fl::TIMING_WS2811_800KHZ_LEGACY>(pin);
+        case LedChipset::WS2811_400: return fl::makeClockless<fl::TIMING_WS2811_400KHZ>(pin);
+        case LedChipset::WS2813:     return fl::makeClockless<fl::TIMING_WS2813>(pin);
+        case LedChipset::WS2815:     return fl::makeClockless<fl::TIMING_WS2815>(pin);
+        case LedChipset::SK6812:     return fl::makeClockless<fl::TIMING_SK6812>(pin);
+        case LedChipset::APA106:     return fl::makeClockless<fl::TIMING_SK6822>(pin); // FastLED's APA106 = SK6822 timing
+        case LedChipset::WS2812B:
+        default:                     return fl::makeClockless<fl::TIMING_WS2812_800KHZ>(pin);
+    }
+}
+
+static EOrder eorderFor(LedColorOrder order) {
+    switch (order) {
+        case LedColorOrder::RBG: return RBG;
+        case LedColorOrder::GRB: return GRB;
+        case LedColorOrder::GBR: return GBR;
+        case LedColorOrder::BRG: return BRG;
+        case LedColorOrder::BGR: return BGR;
+        case LedColorOrder::RGB:
+        default:                 return RGB;
+    }
+}
+
+static void showFrame() {
+    FastLED.show();
+}
+
 void LedAnimations::begin() {
-    FastLED.addLeds<WS2811, LED_DATA_PIN, LED_COLOR_ORDER>(leds, LED_COUNT);
+    StripConfig strip = StripConfigStore::load();
+    ledCount = strip.count;
+    leds = new CRGB[ledCount]; // lives for the whole run: the channel keeps a span over it
+    fl::ChannelConfig config(clocklessFor(strip.chipset, strip.pin), fl::span<CRGB>(leds, ledCount),
+                             eorderFor(strip.order));
+    if (FastLED.add(config) == nullptr) {
+        Log::add("[LED] FastLED could not create the strip on GPIO%u", strip.pin);
+    }
     FastLED.setBrightness(LED_MAX_BRIGHTNESS);
+    Log::add("[LED] strip: %u x %s, order %s, GPIO%u", ledCount, ledChipsetId(strip.chipset),
+             ledColorOrderName(strip.order), strip.pin);
     // Deliberately no fill_solid()/show() here — the strip has its own power
     // and already holds whatever it displayed before this boot; blacking it
     // out on every reboot was the actual source of the "flash" (reboots are
@@ -128,15 +183,52 @@ void LedAnimations::begin() {
 
 void LedAnimations::reloadConfig() {
     AnimConfigSet loaded = AnimConfigStore::load(); // NVS I/O stays outside the lock
+    NightModeConfig night = NightModeStore::load();
     portENTER_CRITICAL(&g_cfgMux);
     g_cfg = loaded;
+    g_night = night;
     portEXIT_CRITICAL(&g_cfgMux);
+    lastNightCheckMs = 0; // re-evaluate the night window on the next frame
+}
+
+bool LedAnimations::nightActive() {
+    return g_nightActive;
+}
+
+// Is the optional night-mode window active right now? Off whenever the clock
+// isn't synced yet, so the strip falls back to its normal brightness.
+static void updateNightActive(unsigned long nowMs, const NightModeConfig &night) {
+    if (lastNightCheckMs != 0 && nowMs - lastNightCheckMs < 1000) return;
+    lastNightCheckMs = nowMs;
+    uint16_t minutes;
+    bool active = night.enabled && Clock::localMinutes(minutes) && nightWindowContains(night, minutes);
+    if (active != g_nightActive) {
+        g_nightActive = active;
+        Log::add("[LED] night mode %s", active ? "on" : "off");
+    }
+}
+
+void LedAnimations::blackout() {
+    blackoutRequested = true;
 }
 
 void LedAnimations::update(PrinterState state, int percent, bool chamberLightOn) {
+    if (!leds) return; // begin() not called yet
     unsigned long now = millis();
     if (now - lastFrameMs < FRAME_INTERVAL_MS) return;
     lastFrameMs = now;
+
+    // About to reboot with a new strip config: clear every LED the current
+    // config drives, so LEDs past a smaller new count don't stay lit with
+    // their last frame (the strip has its own power and holds it otherwise).
+    if (blackoutRequested) {
+        if (!blackoutShown) {
+            fill_solid(leds, ledCount, CRGB::Black);
+            showFrame();
+            blackoutShown = true;
+        }
+        return;
+    }
 
     // Not a real printer state (haven't heard from it yet, or lost the
     // connection). Used to flash a dedicated blue<->red indicator here, but
@@ -184,12 +276,19 @@ void LedAnimations::update(PrinterState state, int percent, bool chamberLightOn)
             break; // unreachable — Unknown returns early above
     }
     brightness = g_cfg.brightness;
+    NightModeConfig night = g_night;
     portEXIT_CRITICAL(&g_cfgMux);
 
+    // Optional night mode: inside its time window the night brightness
+    // replaces the normal one; the dimming rules below still stack on top.
+    updateNightActive(now, night);
+    if (g_nightActive) brightness = night.brightness;
+
     // The printer's own chamber light being off is a decent signal nobody's
-    // actively watching it — drop to a dim ~10% regardless of state,
+    // actively watching it — cap at a dim ~10% regardless of state,
     // independent of (and stacking with) the longer-timeout "sleeping" dim below.
-    if (!chamberLightOn) brightness = 26;
+    // A cap, not a fixed value, so an even dimmer night brightness wins.
+    if (!chamberLightOn && brightness > 26) brightness = 26;
     if (sleeping) brightness = brightness / 5;
 
     if (!everRenderedNormal || state != lastRenderedState) {
@@ -200,5 +299,5 @@ void LedAnimations::update(PrinterState state, int percent, bool chamberLightOn)
     }
 
     renderEffect(c, percent, speed, intensity, brightness);
-    FastLED.show();
+    showFrame();
 }

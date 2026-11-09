@@ -134,6 +134,44 @@ document.getElementById('togglePass').addEventListener('click', () => {
   p.type = p.type === 'password' ? 'text' : 'password';
 });
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function fetchJson(url, opts, timeoutMs){
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs || 4000);
+  try { const r = await fetch(url, Object.assign({cache:'no-store', signal: ctrl.signal}, opts || {})); return await r.json(); }
+  finally { clearTimeout(t); }
+}
+
+function showStep2(ssid, ip){
+  connectedIp = ip;
+  const status = document.getElementById('status1');
+  status.textContent = ''; status.className = 'status';
+  document.getElementById('step1').classList.add('disabled');
+  document.getElementById('step2').classList.remove('hidden');
+  document.getElementById('connectedInfo').textContent = `Joined "${ssid}" — IP ${ip}`;
+  scanPrinters();
+}
+
+// The device joins in the background; poll until it reports the outcome.
+// Fetch errors are expected for a few seconds: joining moves the setup
+// network to the router's channel, which briefly drops this phone/laptop off it.
+async function waitForWifi(status){
+  const deadline = Date.now() + 40000;
+  let idleSeen = 0;
+  while (Date.now() < deadline) {
+    await sleep(1000);
+    let d;
+    try { d = await fetchJson('/wifi-status', null, 2500); }
+    catch(e) {
+      status.textContent = 'Connecting... the setup network may drop for a moment, that is normal. Stay on this page.';
+      continue;
+    }
+    if (d.state === 'connected' || d.state === 'failed') return d;
+    if (d.state === 'idle' && ++idleSeen >= 3) return d; // the connect request never arrived
+  }
+  return {state: 'timeout'};
+}
+
 document.getElementById('btnConnect').addEventListener('click', async () => {
   const ssid = document.getElementById('ssid').value.trim();
   const pass = document.getElementById('pass').value;
@@ -144,29 +182,30 @@ document.getElementById('btnConnect').addEventListener('click', async () => {
   status.textContent = 'Connecting... this can take up to 20s.'; status.className = 'status';
 
   try{
-    const r = await fetch('/connect-wifi', {
+    await fetchJson('/connect-wifi', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ssid, pass})
-    });
-    const d = await r.json();
-    if(!d.ok){
-      status.textContent = 'Could not connect. Check the password and try again.';
-      status.className = 'status err';
-      document.getElementById('btnConnect').disabled = false;
-      return;
-    }
-    connectedIp = d.ip;
-    status.textContent = ''; status.className = 'status';
-    document.getElementById('step1').classList.add('disabled');
-    document.getElementById('step2').classList.remove('hidden');
-    document.getElementById('connectedInfo').textContent = `Joined "${ssid}" — IP ${d.ip}`;
-    scanPrinters();
+    }, 5000);
   }catch(e){
-    status.textContent = 'Request failed. Try again.';
-    status.className = 'status err';
-    document.getElementById('btnConnect').disabled = false;
+    // The request may still have reached the device; the status poll below tells.
   }
+
+  const d = await waitForWifi(status);
+  if (d.state === 'connected') { showStep2(d.ssid || ssid, d.ip); return; }
+  status.textContent = d.state === 'failed'
+    ? 'Could not connect. Check the password and try again.'
+    : 'No answer from the device. Make sure you are still on the BambuLED network and try again.';
+  status.className = 'status err';
+  document.getElementById('btnConnect').disabled = false;
 });
+
+// Page reloaded after the device already joined (e.g. a lost response)? Skip straight to step 2.
+async function resumeIfJoined(){
+  try{
+    const d = await fetchJson('/wifi-status', null, 3000);
+    if (d.state === 'connected') showStep2(d.ssid, d.ip);
+  }catch(e){}
+}
 
 // ---------- Step 2: printer ----------
 
@@ -276,6 +315,7 @@ function startRedirectCountdown(status){
 
 setManualMode(false);
 scanWifi();
+resumeIfJoined();
 </script>
 </body>
 </html>
@@ -380,7 +420,7 @@ function cssRgb(rgb,scale){ return `rgb(${Math.round(rgb[0]*scale)},${Math.round
 // Same rendering logic as the Settings page's live preview, driven by the real
 // saved config for the current state (and the printer's real percent, if printing).
 function renderFrame(cfg, speed, intensity, brightness, tSec, realPercent){
-  const N = 10;
+  const N = ledCount;
   const c1 = hexToRgb(cfg.color1), c2 = hexToRgb(cfg.color2);
   const bri = 0.35 + (brightness / 255) * 0.65; // floor so dim states are still visible on screen
   const bpm = 4 + (speed / 255) * 46;
@@ -406,7 +446,7 @@ function renderFrame(cfg, speed, intensity, brightness, tSec, realPercent){
     }
     case 'Percent': {
       const pct = (realPercent !== null && realPercent !== undefined) ? realPercent : ((Math.sin(beats * 0.5 * 2 * Math.PI) + 1) / 2 * 100);
-      const lit = Math.floor(pct / 10);
+      const lit = Math.floor(pct * N / 100);
       for (let i = 0; i < N; i++) out[i] = i < lit ? c1 : (i === lit ? c2 : [0, 0, 0]);
       break;
     }
@@ -430,7 +470,22 @@ function renderFrame(cfg, speed, intensity, brightness, tSec, realPercent){
 }
 
 const ledBar = document.getElementById('ledBar');
-for (let i = 0; i < 10; i++) { const seg = document.createElement('div'); seg.className = 'seg'; ledBar.appendChild(seg); }
+let ledCount = 10, stripInfo = '—'; // replaced by the real strip setup from /api/strip
+function buildBar(bar, n){
+  bar.innerHTML = '';
+  for (let i = 0; i < n; i++) { const seg = document.createElement('div'); seg.className = 'seg'; bar.appendChild(seg); }
+}
+buildBar(ledBar, ledCount);
+async function loadStrip(){
+  try{
+    const r = await fetch('/api/strip');
+    const d = await r.json();
+    ledCount = d.count;
+    stripInfo = `${d.count} × ${d.chipset} (${d.order}), GPIO${d.pin}`;
+    buildBar(ledBar, ledCount);
+  }catch(e){}
+}
+loadStrip();
 
 let animConfig = null, currentState = 'unknown', currentPercent = null;
 
@@ -456,6 +511,7 @@ async function load(){
     <div class="kv"><span>Printer IP</span><span>${d.printer_ip}</span></div>
     <div class="kv"><span>Serial</span><span>${d.printer_serial}</span></div>
     <div class="kv"><span>Access code</span><span>${d.printer_access_code_masked}</span></div>
+    <div class="kv"><span>LED strip</span><span>${stripInfo}</span></div>
     <div class="kv"><span>Uptime</span><span>${d.uptime_s}s</span></div>
   `;
   currentState = d.printer_state || 'unknown';
@@ -556,6 +612,13 @@ static const char SETTINGS_PAGE_HTML[] PROGMEM = R"HTML(
   .hint{font-size:12px;color:var(--muted);margin-top:10px}
   #animStates.loading{opacity:.4;pointer-events:none}
   input[type=file]{width:100%;margin:10px 0;font-size:13px;color:var(--muted)}
+  .field{width:100%;padding:8px 9px;border-radius:8px;border:1px solid var(--border);background:#0f1319;color:var(--text);font-size:13px;font-family:inherit}
+  .field:disabled{opacity:.5}
+  .hint.warn{color:#f5a524;margin:-2px 0 10px}
+  .check{display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:14px;cursor:pointer}
+  .check input{width:18px;height:18px;margin:0;accent-color:var(--accent)}
+  input[type=time].field{color-scheme:dark}
+  .card > button{width:100%;margin-top:6px}
 </style>
 </head>
 <body>
@@ -571,6 +634,22 @@ static const char SETTINGS_PAGE_HTML[] PROGMEM = R"HTML(
   </nav>
   <main class="content">
     <div class="card">
+      <h2>LED Strip</h2>
+      <div class="row two">
+        <div><label for="stripCount">Number of LEDs</label><input type="number" class="field" id="stripCount" min="1" max="300" step="1" disabled></div>
+        <div><label for="stripPin">Data pin</label><select class="field" id="stripPin" disabled></select></div>
+      </div>
+      <p class="hint warn" id="pinWarning" hidden></p>
+      <div class="row two">
+        <div><label for="stripChipset">LED type</label><select class="field" id="stripChipset" disabled></select></div>
+        <div><label for="stripOrder">Color order</label><select class="field" id="stripOrder" disabled></select></div>
+      </div>
+      <p class="hint" id="stripHint" style="margin-top:0">Loading current strip setup...</p>
+      <button id="btnSaveStrip" class="primary" disabled>Save &amp; restart</button>
+      <p class="status" id="stripStatus"></p>
+    </div>
+
+    <div class="card">
       <h2>LED Animations</h2>
       <p class="hint" id="animLoadHint" style="margin-top:0;margin-bottom:16px">Loading current settings...</p>
       <div class="row" style="margin-bottom:16px">
@@ -585,6 +664,26 @@ static const char SETTINGS_PAGE_HTML[] PROGMEM = R"HTML(
       <button id="btnSaveAnim" class="primary" disabled>Save</button>
     </div>
     <p class="status" id="animStatus"></p>
+
+    <div class="card">
+      <h2>Night Mode</h2>
+      <label class="check"><input type="checkbox" id="nightEnabled" disabled> Use a different brightness at night</label>
+      <div class="row two">
+        <div><label for="nightStart">From</label><input type="time" class="field" id="nightStart" disabled></div>
+        <div><label for="nightEnd">Until</label><input type="time" class="field" id="nightEnd" disabled></div>
+      </div>
+      <div class="row">
+        <label for="nightBrightness">Night brightness: <span id="nightBriVal">—</span></label>
+        <input type="range" min="0" max="255" id="nightBrightness" disabled>
+      </div>
+      <div class="row">
+        <label for="nightTz">Time zone</label>
+        <select class="field" id="nightTz" disabled></select>
+      </div>
+      <p class="hint" id="nightHint" style="margin-top:0">Loading...</p>
+      <button id="btnSaveNight" class="primary" disabled>Save</button>
+      <p class="status" id="nightStatus"></p>
+    </div>
 
     <div class="card">
       <h2>Diagnostics</h2>
@@ -637,13 +736,133 @@ function stateBlockHtml(s){
 const container = document.getElementById('animStates');
 container.innerHTML = STATES.map(stateBlockHtml).join('');
 
-STATES.forEach(s => {
-  const bar = document.getElementById('prevbar-' + s.key);
-  for (let i = 0; i < 10; i++) {
+// ---- LED strip hardware (count / type / color order) ----
+// Previews draw `previewCount` LEDs: the saved count once /api/strip loads,
+// and follows the "Number of LEDs" field live while it's being edited.
+let previewCount = 10;
+function buildBar(bar, n){
+  bar.innerHTML = '';
+  for (let i = 0; i < n; i++) {
     const seg = document.createElement('div');
     seg.className = 'seg';
     bar.appendChild(seg);
   }
+}
+function buildAllBars(n){
+  previewCount = n;
+  STATES.forEach(s => buildBar(document.getElementById('prevbar-' + s.key), n));
+}
+buildAllBars(previewCount);
+
+async function loadStrip(){
+  const r = await fetch('/api/strip');
+  const d = await r.json();
+  const count = document.getElementById('stripCount');
+  const pin = document.getElementById('stripPin');
+  const chip = document.getElementById('stripChipset');
+  const order = document.getElementById('stripOrder');
+  count.max = d.max_count;
+  count.value = d.count;
+  pin.innerHTML = '';
+  d.pins.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.pin;
+    opt.textContent = p.warning ? `GPIO${p.pin} ⚠` : `GPIO${p.pin}`;
+    if (p.warning) opt.dataset.warning = p.warning;
+    pin.appendChild(opt);
+  });
+  pin.value = d.pin;
+  savedPin = d.pin;
+  showPinWarning();
+  chip.innerHTML = d.chipsets.map(c => `<option value="${c.id}" data-order="${c.default_order}">${c.label}</option>`).join('');
+  chip.value = d.chipset;
+  order.innerHTML = d.orders.map(o => `<option value="${o}">${o}</option>`).join('');
+  order.value = d.order;
+  [count, pin, chip, order].forEach(el => { el.disabled = false; });
+  document.getElementById('btnSaveStrip').disabled = false;
+  document.getElementById('stripHint').textContent =
+    `Saving restarts the device (takes ~10 s). Move the strip's data wire to the new pin if you change it. ` +
+    `Only pins that are safe to drive on this chip are listed. ` +
+    `Colors look swapped (e.g. red shows as green)? Try another color order.`;
+  buildAllBars(d.count);
+}
+
+let savedPin = null;
+function pinWarningText(){
+  const opt = document.getElementById('stripPin').selectedOptions[0];
+  return (opt && opt.dataset.warning) || '';
+}
+function showPinWarning(){
+  const el = document.getElementById('pinWarning');
+  const text = pinWarningText();
+  el.textContent = text ? '⚠ ' + text : '';
+  el.hidden = !text;
+}
+document.getElementById('stripPin').addEventListener('change', showPinWarning);
+
+document.getElementById('stripChipset').addEventListener('change', e => {
+  // Suggest the usual wire order for the newly picked LED type.
+  const opt = e.target.selectedOptions[0];
+  if (opt && opt.dataset.order) document.getElementById('stripOrder').value = opt.dataset.order;
+});
+document.getElementById('stripCount').addEventListener('input', e => {
+  const n = parseInt(e.target.value, 10);
+  if (n >= 1 && n <= Number(e.target.max)) buildAllBars(n);
+});
+
+async function waitForRestart(status){
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  await sleep(5000);
+  for (let i = 0; i < 30; i++) {
+    try{
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 2000);
+      const r = await fetch('/api/info', {cache:'no-store', signal: ctrl.signal});
+      clearTimeout(t);
+      if (r.ok) { location.reload(); return; }
+    }catch(e){}
+    await sleep(2000);
+  }
+  status.textContent = 'The device has not come back yet. Reload this page in a moment.';
+  status.className = 'status err';
+}
+
+document.getElementById('btnSaveStrip').addEventListener('click', async () => {
+  const status = document.getElementById('stripStatus');
+  const countEl = document.getElementById('stripCount');
+  const count = parseInt(countEl.value, 10);
+  if (!(count >= 1 && count <= Number(countEl.max))) {
+    status.textContent = `Number of LEDs must be between 1 and ${countEl.max}.`;
+    status.className = 'status err';
+    return;
+  }
+  const pinNum = Number(document.getElementById('stripPin').value);
+  const warning = pinWarningText();
+  if (warning && pinNum !== savedPin && !confirm(`${warning}\n\nUse GPIO${pinNum} anyway?`)) return;
+  const body = {
+    count,
+    pin: pinNum,
+    chipset: document.getElementById('stripChipset').value,
+    order: document.getElementById('stripOrder').value,
+  };
+  status.textContent = 'Saving...'; status.className = 'status';
+  try{
+    const r = await fetch('/api/strip', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    if(!r.ok) throw new Error('bad response');
+    document.getElementById('btnSaveStrip').disabled = true;
+    status.textContent = 'Saved. Restarting the device, this page reloads by itself...';
+    status.className = 'status ok';
+    waitForRestart(status);
+  }catch(e){
+    status.textContent = 'Error saving. Try again.';
+    status.className = 'status err';
+  }
+});
+
+STATES.forEach(s => {
   (s.colors > 1 ? ['color1','color2'] : ['color1']).forEach(field => {
     const native = container.querySelector(`.color-native[data-pair="${field}-${s.key}"]`);
     const hex = document.getElementById(`${field}-${s.key}`);
@@ -720,7 +939,7 @@ function cssRgb(rgb, scale){
 // speed/intensity/brightness are no longer per-state fields — they're passed
 // in from STATES' hardcoded values and the shared brightness slider.
 function renderFrame(cfg, speed, intensity, brightness, tSec){
-  const N = 10;
+  const N = previewCount;
   const c1 = hexToRgb(cfg.color1), c2 = hexToRgb(cfg.color2);
   const bri = 0.35 + (brightness / 255) * 0.65; // floor so dim states are still visible on screen
   const bpm = 4 + (speed / 255) * 46; // mirrors speedToBpm() in firmware
@@ -750,7 +969,7 @@ function renderFrame(cfg, speed, intensity, brightness, tSec){
     case 'Percent': {
       // Background is always off; c2 is the leading-pixel color (see fxPercent).
       const pct = (Math.sin(beats * 0.5 * 2 * Math.PI) + 1) / 2 * 100; // demo sweep
-      const lit = Math.floor(pct / 10);
+      const lit = Math.floor(pct * N / 100);
       for (let i = 0; i < N; i++) {
         out[i] = i < lit ? c1 : (i === lit ? c2 : [0, 0, 0]);
       }
@@ -847,6 +1066,79 @@ async function loadLogs(){
   }catch(e){}
 }
 
+// ---- Night mode (optional time-of-day brightness) ----
+function briPct(v){ return Math.round(Number(v) / 255 * 100) + '%'; }
+function nightFieldsEnabled(){
+  const on = document.getElementById('nightEnabled').checked;
+  ['nightStart', 'nightEnd', 'nightBrightness', 'nightTz'].forEach(id => { document.getElementById(id).disabled = !on; });
+}
+function renderNightHint(d){
+  const hint = document.getElementById('nightHint');
+  if (!d.time_synced) {
+    hint.textContent = 'The device clock is not synced yet (it needs internet access for the time). Until then the strip stays at normal brightness.';
+  } else {
+    hint.textContent = `Device time: ${d.local_time}. ` +
+      (d.night_active ? 'Night brightness is active right now.' : 'Normal brightness right now.') +
+      ' A window like 22:00 to 07:00 runs past midnight. 0% switches the strip off at night.';
+  }
+}
+async function loadNight(){
+  const d = await (await fetch('/api/night', {cache:'no-store'})).json();
+  document.getElementById('nightEnabled').checked = d.enabled;
+  document.getElementById('nightStart').value = d.start;
+  document.getElementById('nightEnd').value = d.end;
+  document.getElementById('nightBrightness').value = d.brightness;
+  document.getElementById('nightBriVal').textContent = briPct(d.brightness);
+  const tz = document.getElementById('nightTz');
+  tz.innerHTML = '';
+  d.zones.forEach((label, i) => { const o = document.createElement('option'); o.value = i; o.textContent = label; tz.appendChild(o); });
+  tz.value = d.tz;
+  document.getElementById('nightEnabled').disabled = false;
+  document.getElementById('btnSaveNight').disabled = false;
+  nightFieldsEnabled();
+  renderNightHint(d);
+}
+// Only the hint refreshes periodically, so it never overwrites fields being edited.
+async function refreshNightHint(){
+  try { renderNightHint(await (await fetch('/api/night', {cache:'no-store'})).json()); } catch(e){}
+}
+document.getElementById('nightEnabled').addEventListener('change', nightFieldsEnabled);
+document.getElementById('nightBrightness').addEventListener('input', e => {
+  document.getElementById('nightBriVal').textContent = briPct(e.target.value);
+});
+document.getElementById('btnSaveNight').addEventListener('click', async () => {
+  const status = document.getElementById('nightStatus');
+  const start = document.getElementById('nightStart').value, end = document.getElementById('nightEnd').value;
+  if (!start || !end) { status.textContent = 'Set both times.'; status.className = 'status err'; return; }
+  const body = {
+    enabled: document.getElementById('nightEnabled').checked,
+    start, end,
+    brightness: Number(document.getElementById('nightBrightness').value),
+    tz: Number(document.getElementById('nightTz').value),
+  };
+  status.textContent = 'Saving...'; status.className = 'status';
+  try{
+    const r = await fetch('/api/night', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    if(!r.ok) throw new Error('bad response');
+    status.textContent = 'Saved — applied immediately, no reboot needed.';
+    status.className = 'status ok';
+    refreshNightHint();
+  }catch(e){
+    status.textContent = 'Error saving. Try again.';
+    status.className = 'status err';
+  }
+});
+
+loadStrip().catch(() => {
+  document.getElementById('stripHint').textContent = 'Could not load the strip setup. Reload the page.';
+});
+loadNight().catch(() => {
+  document.getElementById('nightHint').textContent = 'Could not load the night mode settings. Reload the page.';
+});
+setInterval(refreshNightHint, 30000);
 loadAnim();
 loadFwVersion();
 loadLogs();

@@ -14,6 +14,8 @@
 #include "PrinterMqtt.h"
 #include "LedAnimations.h"
 #include "AnimConfig.h"
+#include "StripConfig.h"
+#include "NightMode.h"
 #include "Log.h"
 
 static AsyncWebServer server(HTTP_PORT);
@@ -29,6 +31,22 @@ static unsigned long restartAtMs = 0;
 static String pendingWifiSsid;
 static String pendingWifiPass;
 static bool staJoinedDuringSetup = false;
+
+// Step 1 runs in the background: /connect-wifi only queues the join and
+// answers at once, loop() drives it (serviceSetupWifi), and the page polls
+// /wifi-status. Joining the home network moves the setup AP to the router's
+// channel, which briefly drops the phone off the AP — a request held open for
+// the whole join lost its response right there ("Request failed" although the
+// join worked). Polling simply retries through that gap.
+enum class SetupWifiState : uint8_t { Idle, Connecting, Connected, Failed };
+static volatile SetupWifiState setupWifiState = SetupWifiState::Idle;
+static portMUX_TYPE connectMux = portMUX_INITIALIZER_UNLOCKED;
+static bool connectRequested = false;     // guarded by connectMux
+static char requestedSsid[33];            // guarded by connectMux (fixed buffers: no malloc inside the lock)
+static char requestedPass[65];
+static String connectingSsid;             // loop() task only
+static String connectingPass;
+static unsigned long connectStartMs = 0;
 
 // ---------------- helpers ----------------
 
@@ -52,7 +70,12 @@ static void requestRestart(unsigned long delayMs) {
     restartAtMs = millis() + delayMs;
 }
 
+// Off when the LED strip's data pin is the status LED's pin (e.g. GPIO8 on a
+// C3): the strip owns that pin then, and toggling it would garble the data.
+static bool statusLedEnabled = true;
+
 static void setStatusLed(bool on) {
+    if (!statusLedEnabled) return;
     digitalWrite(STATUS_LED_PIN, on == STATUS_LED_ACTIVE_HIGH ? HIGH : LOW);
 }
 
@@ -107,39 +130,94 @@ static void handleScan(AsyncWebServerRequest *request) {
 
 // Step 1: join the home WiFi network while keeping the setup AP alive (WIFI_AP_STA),
 // so the browser stays connected to the portal while STA associates in the background.
+// Only queues the join (see SetupWifiState above); the page then polls /wifi-status.
 static void handleConnectWifi(AsyncWebServerRequest *request, JsonVariant &json) {
     JsonObject obj = json.as<JsonObject>();
     String ssid = obj["ssid"] | "";
     String pass = obj["pass"] | "";
 
-    if (ssid.isEmpty()) {
-        request->send(400, "application/json", "{\"ok\":false,\"error\":\"ssid required\"}");
+    if (ssid.isEmpty() || ssid.length() >= sizeof(requestedSsid) || pass.length() >= sizeof(requestedPass)) {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid ssid or password\"}");
         return;
     }
 
-    WiFi.begin(ssid.c_str(), pass.c_str());
-    Serial.printf("Connecting to \"%s\"", ssid.c_str());
-    unsigned long start = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_CONNECT_TIMEOUT_MS) {
-        Serial.print(".");
-        delay(150);
+    // Already on that network (e.g. the page was reloaded after a lost
+    // response): re-joining would only drop the AP off-channel again.
+    if (setupWifiState == SetupWifiState::Connected && WiFi.status() == WL_CONNECTED && WiFi.SSID() == ssid) {
+        request->send(200, "application/json", "{\"ok\":true}");
+        return;
     }
-    Serial.println();
+
+    portENTER_CRITICAL(&connectMux);
+    strlcpy(requestedSsid, ssid.c_str(), sizeof(requestedSsid));
+    strlcpy(requestedPass, pass.c_str(), sizeof(requestedPass));
+    connectRequested = true;
+    portEXIT_CRITICAL(&connectMux);
+    request->send(200, "application/json", "{\"ok\":true}");
+}
+
+static void handleWifiStatus(AsyncWebServerRequest *request) {
+    portENTER_CRITICAL(&connectMux);
+    bool queued = connectRequested;
+    portEXIT_CRITICAL(&connectMux);
+
+    SetupWifiState s = queued ? SetupWifiState::Connecting : (SetupWifiState)setupWifiState;
+    // Joined but the link dropped since: the STA reconnects on its own, so report it as in progress.
+    if (s == SetupWifiState::Connected && WiFi.status() != WL_CONNECTED) s = SetupWifiState::Connecting;
+
+    JsonDocument doc;
+    switch (s) {
+        case SetupWifiState::Idle: doc["state"] = "idle"; break;
+        case SetupWifiState::Connecting: doc["state"] = "connecting"; break;
+        case SetupWifiState::Connected:
+            doc["state"] = "connected";
+            doc["ssid"] = WiFi.SSID();
+            doc["ip"] = WiFi.localIP().toString();
+            break;
+        case SetupWifiState::Failed: doc["state"] = "failed"; break;
+    }
+    String out;
+    serializeJson(doc, out);
+    request->send(200, "application/json", out);
+}
+
+// Runs from loop() in setup mode: starts a queued join and watches how it ends.
+static void serviceSetupWifi() {
+    char ssid[sizeof(requestedSsid)];
+    char pass[sizeof(requestedPass)];
+    bool start = false;
+    portENTER_CRITICAL(&connectMux);
+    if (connectRequested) {
+        memcpy(ssid, requestedSsid, sizeof(ssid));
+        memcpy(pass, requestedPass, sizeof(pass));
+        connectRequested = false;
+        start = true;
+    }
+    portEXIT_CRITICAL(&connectMux);
+
+    if (start) {
+        staJoinedDuringSetup = false;
+        connectingSsid = ssid;
+        connectingPass = pass;
+        connectStartMs = millis();
+        setupWifiState = SetupWifiState::Connecting;
+        Log::add("[Setup] joining \"%s\"...", ssid);
+        WiFi.begin(ssid, pass);
+        return;
+    }
+
+    if (setupWifiState != SetupWifiState::Connecting) return;
 
     if (WiFi.status() == WL_CONNECTED) {
-        pendingWifiSsid = ssid;
-        pendingWifiPass = pass;
+        pendingWifiSsid = connectingSsid;
+        pendingWifiPass = connectingPass;
         staJoinedDuringSetup = true;
-        JsonDocument doc;
-        doc["ok"] = true;
-        doc["ip"] = WiFi.localIP().toString();
-        String out;
-        serializeJson(doc, out);
-        request->send(200, "application/json", out);
-    } else {
-        staJoinedDuringSetup = false;
+        setupWifiState = SetupWifiState::Connected; // set last: /save-printer reads pendingWifi* only after this
+        Log::add("[Setup] joined \"%s\", IP=%s", connectingSsid.c_str(), WiFi.localIP().toString().c_str());
+    } else if (millis() - connectStartMs > WIFI_CONNECT_TIMEOUT_MS) {
         WiFi.disconnect();
-        request->send(200, "application/json", "{\"ok\":false,\"error\":\"could not connect\"}");
+        setupWifiState = SetupWifiState::Failed;
+        Log::add("[Setup] could not join \"%s\" (status %d)", connectingSsid.c_str(), (int)WiFi.status());
     }
 }
 
@@ -168,7 +246,7 @@ static void handleScanPrinter(AsyncWebServerRequest *request) {
 
 // Step 2 (finish): persist WiFi (confirmed in step 1) + printer info together, then reboot.
 static void handleSavePrinter(AsyncWebServerRequest *request, JsonVariant &json) {
-    if (pendingWifiSsid.isEmpty()) {
+    if (setupWifiState != SetupWifiState::Connected || pendingWifiSsid.isEmpty()) {
         request->send(409, "application/json", "{\"ok\":false,\"error\":\"connect to wifi first\"}");
         return;
     }
@@ -207,6 +285,7 @@ static void startApPortal() {
     });
     server.on("/scan", HTTP_GET, handleScan);
     server.on("/scan-printer", HTTP_GET, handleScanPrinter);
+    server.on("/wifi-status", HTTP_GET, handleWifiStatus);
 
     auto *connectHandler = new AsyncCallbackJsonWebHandler("/connect-wifi", handleConnectWifi);
     server.addHandler(connectHandler);
@@ -306,6 +385,151 @@ static void handleResetAnim(AsyncWebServerRequest *request) {
     request->send(200, "application/json", "{\"ok\":true}");
 }
 
+// ---- LED strip hardware API (count / chipset / color order) ----
+
+static void handleGetStrip(AsyncWebServerRequest *request) {
+    StripConfig cfg = StripConfigStore::load();
+    JsonDocument doc;
+    doc["count"] = cfg.count;
+    doc["chipset"] = ledChipsetId(cfg.chipset);
+    doc["order"] = ledColorOrderName(cfg.order);
+    doc["max_count"] = LED_MAX_COUNT;
+    doc["pin"] = cfg.pin;
+    JsonArray pins = doc["pins"].to<JsonArray>();
+    size_t pinCount;
+    const LedPinInfo *allowed = ledAllowedPins(pinCount);
+    for (size_t i = 0; i < pinCount; i++) {
+        JsonObject o = pins.add<JsonObject>();
+        o["pin"] = allowed[i].pin;
+        if (allowed[i].warning) o["warning"] = allowed[i].warning;
+    }
+    JsonArray chipsets = doc["chipsets"].to<JsonArray>();
+    for (uint8_t i = 0; i < (uint8_t)LedChipset::Count_; i++) {
+        JsonObject o = chipsets.add<JsonObject>();
+        o["id"] = ledChipsetId((LedChipset)i);
+        o["label"] = ledChipsetLabel((LedChipset)i);
+        o["default_order"] = ledColorOrderName(ledChipsetDefaultOrder((LedChipset)i));
+    }
+    JsonArray orders = doc["orders"].to<JsonArray>();
+    for (uint8_t i = 0; i < (uint8_t)LedColorOrder::Count_; i++) {
+        orders.add(ledColorOrderName((LedColorOrder)i));
+    }
+    String out;
+    serializeJson(doc, out);
+    request->send(200, "application/json", out);
+}
+
+// Saves the new strip setup and reboots to apply it (FastLED fixes the
+// chipset when the controller is created at boot).
+static void handleSaveStrip(AsyncWebServerRequest *request, JsonVariant &json) {
+    JsonObject obj = json.as<JsonObject>();
+    StripConfig cfg = StripConfigStore::load(); // start from what's saved so a partial body keeps the rest
+
+    if (!obj["count"].isNull()) {
+        int count = obj["count"].as<int>();
+        if (count < 1 || count > LED_MAX_COUNT) {
+            request->send(400, "application/json", "{\"ok\":false,\"error\":\"count out of range\"}");
+            return;
+        }
+        cfg.count = (uint16_t)count;
+    }
+    if (!obj["chipset"].isNull() && !parseLedChipset(obj["chipset"].as<const char *>(), cfg.chipset)) {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"unknown chipset\"}");
+        return;
+    }
+    if (!obj["order"].isNull() && !parseLedColorOrder(obj["order"].as<const char *>(), cfg.order)) {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"unknown color order\"}");
+        return;
+    }
+    if (!obj["pin"].isNull()) {
+        int pin = obj["pin"].as<int>();
+        if (!ledPinAllowed(pin)) {
+            request->send(400, "application/json", "{\"ok\":false,\"error\":\"pin not allowed\"}");
+            return;
+        }
+        cfg.pin = (uint8_t)pin;
+    }
+
+    StripConfigStore::save(cfg);
+    Log::add("[LED] strip set to %u x %s (%s) on GPIO%u, restarting", cfg.count, ledChipsetId(cfg.chipset),
+             ledColorOrderName(cfg.order), cfg.pin);
+    LedAnimations::blackout();
+    request->send(200, "application/json", "{\"ok\":true,\"restarting\":true}");
+    requestRestart(1500);
+}
+
+// ---- night mode (time-of-day brightness) API ----
+
+static String minutesToHhmm(uint16_t m) {
+    char buf[6];
+    snprintf(buf, sizeof(buf), "%02u:%02u", m / 60, m % 60);
+    return String(buf);
+}
+
+// "HH:MM" -> minutes after midnight; false if malformed.
+static bool hhmmToMinutes(const char *s, uint16_t &out) {
+    if (!s) return false;
+    unsigned h, m;
+    char extra;
+    if (sscanf(s, "%u:%u%c", &h, &m, &extra) != 2 || h > 23 || m > 59) return false;
+    out = (uint16_t)(h * 60 + m);
+    return true;
+}
+
+static void handleGetNight(AsyncWebServerRequest *request) {
+    NightModeConfig cfg = NightModeStore::load();
+    JsonDocument doc;
+    doc["enabled"] = cfg.enabled;
+    doc["start"] = minutesToHhmm(cfg.startMin);
+    doc["end"] = minutesToHhmm(cfg.endMin);
+    doc["brightness"] = cfg.brightness;
+    doc["tz"] = cfg.tz;
+    JsonArray zones = doc["zones"].to<JsonArray>();
+    size_t zoneCount;
+    const TimeZoneInfo *tz = timeZones(zoneCount);
+    for (size_t i = 0; i < zoneCount; i++) zones.add(tz[i].label);
+    doc["time_synced"] = Clock::synced();
+    doc["local_time"] = Clock::localTimeString();
+    doc["night_active"] = LedAnimations::nightActive();
+    String out;
+    serializeJson(doc, out);
+    request->send(200, "application/json", out);
+}
+
+static void handleSaveNight(AsyncWebServerRequest *request, JsonVariant &json) {
+    JsonObject obj = json.as<JsonObject>();
+    NightModeConfig cfg = NightModeStore::load(); // start from what's saved so a partial body keeps the rest
+    uint8_t oldTz = cfg.tz;
+
+    if (!obj["enabled"].isNull()) cfg.enabled = obj["enabled"].as<bool>();
+    if (!obj["start"].isNull() && !hhmmToMinutes(obj["start"].as<const char *>(), cfg.startMin)) {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"bad start time\"}");
+        return;
+    }
+    if (!obj["end"].isNull() && !hhmmToMinutes(obj["end"].as<const char *>(), cfg.endMin)) {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"bad end time\"}");
+        return;
+    }
+    if (!obj["brightness"].isNull()) cfg.brightness = (uint8_t)constrain(obj["brightness"].as<int>(), 0, 255);
+    if (!obj["tz"].isNull()) {
+        size_t zoneCount;
+        timeZones(zoneCount);
+        int tz = obj["tz"].as<int>();
+        if (tz < 0 || (size_t)tz >= zoneCount) {
+            request->send(400, "application/json", "{\"ok\":false,\"error\":\"unknown time zone\"}");
+            return;
+        }
+        cfg.tz = (uint8_t)tz;
+    }
+
+    NightModeStore::save(cfg);
+    if (cfg.tz != oldTz) Clock::setZone(cfg.tz);
+    LedAnimations::reloadConfig(); // applies immediately, no reboot needed
+    Log::add("[LED] night mode %s, %s-%s at %u", cfg.enabled ? "enabled" : "disabled",
+             minutesToHhmm(cfg.startMin).c_str(), minutesToHhmm(cfg.endMin).c_str(), cfg.brightness);
+    request->send(200, "application/json", "{\"ok\":true}");
+}
+
 // How long to keep trusting the last known state (e.g. still showing red
 // after a cancelled print) once reports stop arriving, before giving up and
 // showing "disconnected" instead. Long enough to ride out a normal TLS
@@ -374,7 +598,18 @@ static void startStaMode() {
     auto *saveAnimHandler = new AsyncCallbackJsonWebHandler("/api/anim", handleSaveAnim);
     server.addHandler(saveAnimHandler);
     server.on("/api/anim/reset", HTTP_POST, handleResetAnim);
+
+    server.on("/api/strip", HTTP_GET, handleGetStrip);
+    auto *saveStripHandler = new AsyncCallbackJsonWebHandler("/api/strip", handleSaveStrip);
+    server.addHandler(saveStripHandler);
+
+    server.on("/api/night", HTTP_GET, handleGetNight);
+    auto *saveNightHandler = new AsyncCallbackJsonWebHandler("/api/night", handleSaveNight);
+    server.addHandler(saveNightHandler);
     server.begin();
+
+    // Wall-clock time for the optional night mode (NTP runs in the background).
+    Clock::begin(NightModeStore::load().tz);
 
     Serial.println("=====================================");
     Serial.printf("Connected! IP=%s  http://%s.local\n", WiFi.localIP().toString().c_str(), MDNS_HOSTNAME);
@@ -382,12 +617,13 @@ static void startStaMode() {
     Log::add("[WiFi] connected, IP=%s", WiFi.localIP().toString().c_str());
 
     LedAnimations::begin();
-    // Pinned to core 1 (same as loop()/Arduino default), not core 0 — that's
-    // where the WiFi stack runs, and it's already documented as sensitive to
+    // Pinned to the same core as loop() (ARDUINO_RUNNING_CORE: core 1 on the
+    // dual-core ESP32, core 0 on single-core chips like the ESP32-C3), not the
+    // WiFi core on dual-core chips — WiFi is already documented as sensitive to
     // timing disruption (see WiFi.setSleep(false) above). FreeRTOS still
     // preemptively time-slices this against loop() on the same core, which is
     // all that's needed to survive a blocking MQTT reconnect without stutter.
-    xTaskCreatePinnedToCore(ledTask, "led", 3072, nullptr, 1, nullptr, 1);
+    xTaskCreatePinnedToCore(ledTask, "led", 3072, nullptr, 1, nullptr, ARDUINO_RUNNING_CORE);
 
     if (state.hasPrinter()) {
         PrinterMqtt::begin(state.printerIp, state.printerSerial, state.printerAccessCode);
@@ -425,7 +661,7 @@ void setup() {
     // completion instead of blocking inline.
     esp_task_wdt_config_t twdtConfig = {
         .timeout_ms = 60000,
-        .idle_core_mask = (1 << 0) | (1 << 1),
+        .idle_core_mask = (1 << portNUM_PROCESSORS) - 1, // every core's idle task (1 core on the C3)
         .trigger_panic = true,
     };
     esp_task_wdt_reconfigure(&twdtConfig); // Arduino already inits the TWDT; this just widens its timeout
@@ -434,8 +670,11 @@ void setup() {
     delay(300);
     Serial.printf("\n%s v%s booting\n", PROJECT_NAME, FIRMWARE_VERSION);
 
-    pinMode(STATUS_LED_PIN, OUTPUT);
-    setStatusLed(false);
+    statusLedEnabled = StripConfigStore::load().pin != STATUS_LED_PIN;
+    if (statusLedEnabled) {
+        pinMode(STATUS_LED_PIN, OUTPUT);
+        setStatusLed(false);
+    }
 
     state = Storage::load();
 
@@ -451,6 +690,7 @@ void setup() {
 void loop() {
     if (apMode) {
         dnsServer.processNextRequest();
+        serviceSetupWifi();
         // slow blink in setup mode
         setStatusLed((millis() / 500) % 2 == 0);
         // dnsServer.processNextRequest() runs in a tight loop with nothing else

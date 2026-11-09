@@ -36,9 +36,13 @@ If you'd rather run the Home Assistant + WLED version instead, see
 
 ## Hardware
 
-- Any ESP32-WROOM-32 DevKit works (don't need PSRAM or anything fancy).
-- A WS2811 strip (WS2812/compatible too, just flip `LED_COLOR_ORDER`) — 10 segments by
-  default, one per 10% of print progress.
+- Any ESP32-WROOM-32 DevKit works (don't need PSRAM or anything fancy). ESP32-C3 boards
+  with native USB (e.g. C3 SuperMini) work too — build the `esp32c3` env (see
+  **Building from source**).
+- An addressable LED strip: WS2812B/NeoPixel, WS2811 (800 or 400 kHz), WS2813, WS2815,
+  SK6812 (RGB) or APA106/PL9823. Data pin, number of LEDs (1-300), LED type and color order
+  are all set from the web UI (**Settings → LED Strip**), no recompiling. First-boot default
+  is the original setup: 10 × WS2811, RGB, data on GPIO16 (ESP32) / GPIO4 (ESP32-C3).
 
 ### Wiring it up
 
@@ -47,16 +51,17 @@ see [Bambu Lab LED Status Bar - Wiring.pdf](docs/Bambu%20Lab%20LED%20Status%20Ba
 
 | Strip | ESP32 |
 |---|---|
-| **DIN** (data) | GPIO16 |
+| **DIN** (data) | GPIO16 by default (ESP32-C3: GPIO4) — any pin offered in Settings → LED Strip |
 | **GND** | Any GND pin — they're all the same net |
 | **+5V** | ESP32's 5V/VIN pin, or a separate 5V supply — see below |
 
 - Toss a ~300-500Ω resistor in series on the data line, right before the first LED, if
   you get flicker or a weird color on that first pixel.
-- Colors look wrong/swapped? Flip `LED_COLOR_ORDER` from `RGB` to `GRB` in
-  [AppConfig.h](include/AppConfig.h).
+- Colors look wrong/swapped? Change the **Color order** in Settings → LED Strip (WS2812B
+  is usually GRB, WS2811 often RGB or BRG).
 - **Power**: we measured ~270mA peak for 10 LEDs at full brightness, which a normal USB
-  port handles fine — you can power the whole thing off the ESP32's own USB. If you do
+  port handles fine — you can power the whole thing off the ESP32's own USB. Roughly double
+  that for 20 LEDs, which is already past what a plain USB port is good for. If you do
   use a separate 5V supply (say, for a longer strip), just make sure its GND is tied to
   the ESP32's GND too. Skipping that shared ground is a good way to get flaky data and a
   confusing debugging session.
@@ -104,6 +109,8 @@ Want to hack on the code instead? Here's the PlatformIO route:
 ```bash
 pio run -t upload
 ```
+
+   On an ESP32-C3 board use its env instead: `pio run -e esp32c3 -t upload`.
 
 4. Want to watch the logs?
 
@@ -161,7 +168,8 @@ printer's network screen, or just check your router.
 
   <img src="docs/screenshots/ui-01-status.png" width="420" alt="Status page">
 
-- **`http://bambuled.local/settings`** — pick 1-2 colors per state (the animation *type*
+- **`http://bambuled.local/settings`** — **LED Strip**: data pin, number of LEDs, LED type
+  and color order (saving restarts the device to apply it). Below that, pick 1-2 colors per state (the animation *type*
   is fixed per state, already tuned to look right — you're not choosing effects, just
   colors), one brightness slider for everything, and a **Diagnostics** panel with the
   last ~30 log lines from the firmware. Great for figuring out what's wrong without
@@ -220,6 +228,10 @@ A few quirks worth knowing about:
   printer says.
 - **Chamber light off → the whole strip drops to ~10%**, no matter what state it's in —
   decent proxy for "nobody's watching this right now."
+- **Night mode (optional, off by default).** Settings → Night Mode: pick a time window
+  (e.g. 22:00 to 07:00, may run past midnight), a night brightness (0% = off) and your time
+  zone. The clock comes from NTP; until it's synced the strip stays at normal brightness.
+  The other dimming rules here still apply on top of it.
 - **Idle for a while → dims even more.** After `LED_IDLE_TO_SLEEP_MS` (30 min by default,
   in [AppConfig.h](include/AppConfig.h)) of sitting idle, brightness drops to a fifth.
 - **Lost the MQTT connection?** The strip just holds whatever it last showed instead of
@@ -242,6 +254,8 @@ BambuEsp32MQTT/
 │   ├── PrinterStatus.h      # the derived printer state struct/enum
 │   ├── LedAnimations.h      # per-state FastLED animation contract
 │   ├── AnimConfig.h         # animation config schema + NVS persistence
+│   ├── StripConfig.h        # LED data pin / count / chipset / color order + NVS persistence
+│   ├── NightMode.h          # optional night brightness window, time zones, NTP clock
 │   ├── Log.h                # small in-RAM ring buffer behind the Diagnostics panel
 │   └── WebPages.h           # HTML/CSS/JS for the setup wizard, status and settings pages
 └── src/
@@ -252,6 +266,8 @@ BambuEsp32MQTT/
     ├── PrinterStatus.cpp
     ├── LedAnimations.cpp     # the actual FastLED effects
     ├── AnimConfig.cpp
+    ├── StripConfig.cpp
+    ├── NightMode.cpp
     └── Log.cpp
 ```
 

@@ -20,16 +20,30 @@
 // ---- WiFi connection (station mode) ----
 #define WIFI_CONNECT_TIMEOUT_MS   20000   // max time trying the saved network before falling back to the AP
 
+// Pins can be overridden per board from platformio.ini (build_flags -D...),
+// see the esp32c3 env there; the values below are the ESP32 DevKit defaults.
+
 // ---- Onboard LED (visual feedback that doesn't depend on the strip) ----
 // Most ESP32-WROOM-32 DevKits have a blue LED on GPIO2. Adjust if yours differs.
+#ifndef STATUS_LED_PIN
 #define STATUS_LED_PIN         2
+#endif
+#ifndef STATUS_LED_ACTIVE_HIGH
 #define STATUS_LED_ACTIVE_HIGH true
+#endif
 
-// ---- WS2811 strip (status bar) ----
-// Same pin/count as the original WLED project. Adjust to match your wiring.
+// ---- LED strip (status bar) ----
+// Data pin, LED count, chipset and color order are set from the web UI
+// (Settings > LED strip) and stored in NVS — the values below are only the
+// first-boot defaults (see StripConfig.h). They match the original hardcoded
+// strip (10 x WS2811, RGB, GPIO16), so existing builds keep working after an update.
+#ifndef LED_DATA_PIN
 #define LED_DATA_PIN            16
-#define LED_COUNT                10   // 10 segments = one per 10% of print progress
-#define LED_COLOR_ORDER         RGB   // switch to GRB if colors come out swapped (see README)
+#endif
+#define LED_DEFAULT_COUNT        10   // 10 segments = one per 10% of print progress
+#define LED_DEFAULT_CHIPSET     LedChipset::WS2811
+#define LED_DEFAULT_COLOR_ORDER LedColorOrder::RGB
+#define LED_MAX_COUNT           300   // upper limit accepted from the web UI
 #define LED_MAX_BRIGHTNESS      255   // global FastLED brightness ceiling (0-255)
 
 // How long (ms) idle before the strip dims into "sleep" mode
