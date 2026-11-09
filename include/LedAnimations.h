@@ -15,4 +15,11 @@ namespace LedAnimations {
     // Re-reads the saved config from NVS into memory (call after saving new
     // settings so the change applies immediately, no reboot needed).
     void reloadConfig();
+
+    // Turns every LED off and stops rendering — call right before a reboot
+    // that applies a new StripConfig (LED count/chipset/color order).
+    void blackout();
+
+    // True while the optional night-mode window is dimming the strip.
+    bool nightActive();
 }
